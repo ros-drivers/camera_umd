@@ -1,0 +1,9 @@
+<stack>
+  <description brief="camera_umd">camera_umd</description>
+  <author>Ken Tossell/ktossell@umd.edu</author>
+  <license>BSD</license>  
+  <review status="unreviewed" notes=""/>
+  <url>http://ros.org/wiki/camera_umd</url>
+  <depend stack="ros" />
+
+</stack>
