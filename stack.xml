@@ -1,7 +1,7 @@
 <stack>
-  <description brief="camera_umd">camera_umd</description>
+  <description brief="camera_umd">camera-/image-related software for stereo, streaming, ...</description>
   <author>Ken Tossell/ktossell@umd.edu</author>
-  <license>BSD</license>  
+  <license>BSD</license>
   <review status="unreviewed" notes=""/>
   <url>http://ros.org/wiki/camera_umd</url>
   <depend stack="ros" />
