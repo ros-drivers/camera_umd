@@ -1,0 +1,16 @@
+<package>
+  <description brief="uvc_stereo">
+
+     Stream images from two USB cameras (UVC), assigning equal timestamps to corresponding
+     frames and providing CameraInfo messages to consumers
+
+  </description>
+  <author>Ken Tossell/ktossell@umd.edu</author>
+  <license>GPL</license>
+  <review status="experimental" notes=""/>
+  <url>http://ros.org/wiki/uvc_stereo</url>
+  <depend package="sensor_msgs"/>
+  <depend package="camera_info_manager"/>
+</package>
+
+
