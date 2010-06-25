@@ -8,6 +8,7 @@
 #include "sensor_msgs/image_encodings.h"
 #include "sensor_msgs/CameraInfo.h"
 #include "camera_info_manager/camera_info_manager.h"
+#include "image_transport/image_transport.h"
 
 using namespace sensor_msgs;
 
@@ -27,7 +28,7 @@ static inline void rotate(unsigned char *dst_chr, unsigned char *src_chr, int pi
 
 class UVCStereo {
   public:
-    UVCStereo(int argc, char **argv) : pnode("~"),
+    UVCStereo(int argc, char **argv) : pnode("~"), it(node),
       width(640), height(480),
       fps(10), skip_frames(0), frames_to_skip(0),
       left_device("/dev/video0"), right_device("/dev/video1"),
@@ -56,8 +57,8 @@ class UVCStereo {
       pnode.getParam("width", width);
       pnode.getParam("height", height);
 
-      left_pub = node.advertise<Image>("left/image_raw", 1);
-      right_pub = node.advertise<Image>("right/image_raw", 1);
+      left_pub = it.advertise("left/image_raw", 1);
+      right_pub = it.advertise("right/image_raw", 1);
 
       left_info_pub = node.advertise<CameraInfo>("left/camera_info", 1);
       right_info_pub = node.advertise<CameraInfo>("right/camera_info", 1);
@@ -115,8 +116,8 @@ class UVCStereo {
              image_left.header.frame_id = frame;
              image_right.header.frame_id = frame;
 
-             image_left.set_data_size(image_left.step * image_left.height);
-             image_right.set_data_size(image_right.step * image_right.height);
+             image_left.data.resize(image_left.step * image_left.height);
+             image_right.data.resize(image_right.step * image_right.height);
 
              if (rotate_left)
                rotate(&image_left.data[0], frame_left, width*height);
@@ -153,6 +154,7 @@ class UVCStereo {
 
   private:
     ros::NodeHandle node, pnode;
+    image_transport::ImageTransport it;
 
     uvc_cam::Cam *cam_left, *cam_right;
     int width, height, fps, skip_frames, frames_to_skip;
@@ -161,7 +163,7 @@ class UVCStereo {
 
     CameraInfoManager left_info_mgr, right_info_mgr;
 
-    ros::Publisher left_pub, right_pub;
+    image_transport::Publisher left_pub, right_pub;
     ros::Publisher left_info_pub, right_info_pub;
 
 };

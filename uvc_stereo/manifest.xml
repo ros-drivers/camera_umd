@@ -11,6 +11,7 @@
   <url>http://ros.org/wiki/uvc_stereo</url>
   <depend package="sensor_msgs"/>
   <depend package="camera_info_manager"/>
+  <depend package="image_transport"/>
 </package>
 
 
