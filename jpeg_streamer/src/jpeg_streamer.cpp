@@ -20,28 +20,45 @@ class JPEGStreamer {
     ros::NodeHandle node;
     ros::Subscriber image_sub;
     mg_context *web_context;
+    mg_config web_config;
     boost::mutex con_mutex;
     boost::mutex data_mutex;
     list<boost::tuple<struct mg_connection*, boost::condition_variable*, boost::mutex*> > connections;
 
     void image_callback(const sensor_msgs::CompressedImage::ConstPtr& msg);
+
+    int skip, skipped;
 };
 
 static JPEGStreamer *g_status_video;
 
-int new_req_callback(struct mg_connection *con, const struct mg_request_info *req) {
+mg_error_t new_req_callback(struct mg_connection *con, const struct mg_request_info *req) {
   boost::condition_variable cond;
   boost::mutex single_mutex;
   boost::unique_lock<boost::mutex> lock(single_mutex);
   g_status_video->add_connection(con, &cond, &single_mutex);
   cond.wait(lock);
-  return 1;
+  return MG_SUCCESS;
 }
 
 JPEGStreamer::JPEGStreamer() {
   string topic = node.resolveName("image");
-  string port;
-  node.param("port", port, string("8080"));
+  int port, max_clients;
+  ros::NodeHandle("~").param("port", port, 8080);
+  ros::NodeHandle("~").param("skip", skip, 0);
+  ros::NodeHandle("~").param("max_clients", max_clients, 32);
+  skipped = 0;
+  
+  std::stringstream port_ss, threads_ss;
+  port_ss << port;
+  threads_ss << max_clients;
+
+  memset(&web_config, 0, sizeof(web_config));
+
+  web_config.listening_ports = strdup(port_ss.str().c_str());
+  web_config.new_request_handler = &new_req_callback;
+  web_config.num_threads = strdup(threads_ss.str().c_str());
+  web_config.auth_domain = strdup(".");
 
   image_sub = node.subscribe<sensor_msgs::CompressedImage>(topic, 1,
     boost::bind(&JPEGStreamer::image_callback, this, _1)
@@ -49,9 +66,7 @@ JPEGStreamer::JPEGStreamer() {
 
   g_status_video = this;
 
-  web_context = mg_start();
-  mg_set_option(web_context, "ports", port.c_str());
-  mg_set_callback(web_context, MG_EVENT_NEW_REQUEST, &new_req_callback);
+  web_context = mg_start(&web_config);
 }
 
 static char header_text[] = "HTTP/1.0 200 OK\r\nConnection: Close\r\n"
@@ -69,6 +84,11 @@ void JPEGStreamer::add_connection(struct mg_connection *con, boost::condition_va
 }
 
 void JPEGStreamer::image_callback(const sensor_msgs::CompressedImage::ConstPtr& msg) {
+  if (skipped++ == skip)
+    skipped = 0;
+  else
+    return;
+
   string data = "--myboundary\r\nContent-Type: image/jpeg\r\nContent-Length: "
     + boost::lexical_cast<string>(msg->data.size()) + "\r\n\r\n";
 

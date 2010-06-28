@@ -20,12 +20,15 @@
  * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
  * THE SOFTWARE.
  *
- * $Id$
+ * $Id: mongoose.c 517 2010-05-03 12:54:59Z valenok $
  */
 
 #if defined(_WIN32)
 #define _CRT_SECURE_NO_WARNINGS	/* Disable deprecation warning in VS2005 */
-#endif /* _WIN32 */
+#else
+#define	_XOPEN_SOURCE 600	/* For flockfile() on Linux	*/
+#define _LARGEFILE_SOURCE	/* Enable 64-bit file offsets	*/
+#endif
 
 #ifndef _WIN32_WCE /* Some ANSI #includes are not available on Windows CE */
 #include <sys/types.h>
@@ -84,9 +87,11 @@ typedef long off_t;
 #define	STR(x)			STRX(x)
 #define	__func__		"line " STR(__LINE__)
 #define	strtoull(x, y, z)	strtoul(x, y, z)
+#define	strtoll(x, y, z)	strtol(x, y, z)
 #else
 #define	__func__		__FUNCTION__
 #define	strtoull(x, y, z)	_strtoui64(x, y, z)
+#define	strtoll(x, y, z)	_strtoi64(x, y, z)
 #endif /* _MSC_VER */
 
 #define	ERRNO			GetLastError()
@@ -96,7 +101,9 @@ typedef long off_t;
 #define	DIRSEP			'\\'
 #define	IS_DIRSEP_CHAR(c)	((c) == '/' || (c) == '\\')
 #define	O_NONBLOCK		0
+#if !defined(EWOULDBLOCK)
 #define	EWOULDBLOCK		WSAEWOULDBLOCK
+#endif /* !EWOULDBLOCK */
 #define	_POSIX_
 #define INT64_FMT		"I64d"
 
@@ -133,6 +140,7 @@ struct timespec {
 
 static int pthread_mutex_lock(pthread_mutex_t *);
 static int pthread_mutex_unlock(pthread_mutex_t *);
+static FILE *mg_fopen(const char *path, const char *mode);
 
 #if defined(HAVE_STDINT)
 #include <stdint.h>
@@ -197,8 +205,6 @@ typedef int SOCKET;
 #define	CGI_ENVIRONMENT_SIZE	4096
 #define	MAX_CGI_ENVIR_VARS	64
 #define	MAX_REQUEST_SIZE	8192
-#define	MAX_LISTENING_SOCKETS	10
-#define	MAX_CALLBACKS		20
 #define	ARRAY_SIZE(array)	(sizeof(array) / sizeof(array[0]))
 #define	DEBUG_MGS_PREFIX	"*** Mongoose debug *** "
 
@@ -266,6 +272,9 @@ struct ssl_func {
 #define SSL_CTX_set_default_passwd_cb(x,y) \
 	(* (void (*)(SSL_CTX *, mg_callback_t)) ssl_sw[13].ptr)((x),(y))
 #define SSL_CTX_free(x) (* (void (*)(SSL_CTX *)) ssl_sw[14].ptr)(x)
+#define ERR_get_error() (* (unsigned long (*)(void)) ssl_sw[15].ptr)()
+#define ERR_error_string(x, y) (* (char * (*)(unsigned long, char *)) ssl_sw[16].ptr)((x), (y))
+#define SSL_load_error_strings() (* (void (*)(void)) ssl_sw[17].ptr)()
 
 #define CRYPTO_num_locks() (* (int (*)(void)) crypto_sw[0].ptr)()
 #define CRYPTO_set_locking_callback(x)					\
@@ -296,6 +305,9 @@ static struct ssl_func	ssl_sw[] = {
 	{"SSL_CTX_use_certificate_file",NULL},
 	{"SSL_CTX_set_default_passwd_cb",NULL},
 	{"SSL_CTX_free",		NULL},
+	{"ERR_get_error",		NULL},
+	{"ERR_error_string",	NULL},
+	{"SSL_load_error_strings", NULL},
 	{NULL,				NULL}
 };
 
@@ -347,33 +359,13 @@ struct mgstat {
 	time_t		mtime;		/* Modification time		*/
 };
 
-struct mg_option {
-	const char	*name;
-	const char	*description;
-	const char	*default_value;
-	int		index;
-	bool_t (*setter)(struct mg_context *, const char *);
-};
-
-/*
- * Numeric indexes for the option values in context, ctx->options
- */
-enum mg_option_index {
-	OPT_ROOT, OPT_INDEX_FILES, OPT_PORTS, OPT_DIR_LIST, OPT_CGI_EXTENSIONS,
-	OPT_CGI_INTERPRETER, OPT_CGI_ENV, OPT_SSI_EXTENSIONS, OPT_AUTH_DOMAIN,
-	OPT_AUTH_GPASSWD, OPT_AUTH_PUT, OPT_ACCESS_LOG, OPT_ERROR_LOG,
-	OPT_SSL_CERTIFICATE, OPT_ALIASES, OPT_ACL, OPT_UID, OPT_PROTECT,
-	OPT_SERVICE, OPT_HIDE, OPT_ADMIN_URI, OPT_MAX_THREADS, OPT_IDLE_TIME,
-	OPT_MIME_TYPES,
-	NUM_OPTIONS
-};
-
 /*
  * Structure used to describe listening socket, or socket which was
  * accept()-ed by the master thread and queued for future handling
  * by the worker thread.
  */
 struct socket {
+	struct socket	*next;		/* Linkage			*/
 	SOCKET		sock;		/* Listening socket		*/
 	struct usa	lsa;		/* Local socket address		*/
 	struct usa	rsa;		/* Remote socket address	*/
@@ -386,17 +378,14 @@ struct socket {
 struct mg_context {
 	int		stop_flag;	/* Should we stop event loop	*/
 	SSL_CTX		*ssl_ctx;	/* SSL context			*/
+	const struct mg_config *config;	/* Mongoose configuration	*/
 
-	struct socket	listeners[MAX_LISTENING_SOCKETS];
-	int		num_listeners;
-	char		*options[NUM_OPTIONS];
-	mg_callback_t	callbacks[NUM_EVENTS];
+	struct socket	*listening_sockets;
 
 	int		num_threads;	/* Number of threads		*/
 	int		num_idle;	/* Number of idle threads	*/
 
 	pthread_mutex_t	mutex;		/* Protects (max|num)_threads	*/
-	pthread_rwlock_t rwlock;	/* Protects options, callbacks	*/
 	pthread_cond_t	thr_cond;	/* Condvar for thread sync	*/
 
 	struct socket	queue[20];	/* Accepted sockets		*/
@@ -416,7 +405,6 @@ struct mg_connection {
 	struct socket	client;		/* Connected client		*/
 	time_t		birth_time;	/* Time connection was accepted	*/
 	bool_t		free_post_data;	/* post_data was malloc-ed	*/
-	bool_t		embedded_auth;	/* Used for authorization	*/
 	int64_t		num_bytes_sent;	/* Total bytes sent to client	*/
 };
 
@@ -428,7 +416,7 @@ cry(struct mg_connection *conn, const char *fmt, ...)
 {
 	char		buf[BUFSIZ];
 	mg_callback_t	log_callback;
-	bool_t		processed = FALSE;
+	enum mg_error_t	processed = MG_ERROR;
 	va_list		ap;
 	FILE		*fp;
 	time_t		timestamp;
@@ -442,15 +430,13 @@ cry(struct mg_connection *conn, const char *fmt, ...)
 	 * I suppose this is fine, since function cannot disappear in the
 	 * same way string option can.
 	 */
-	log_callback = conn->ctx->callbacks[MG_EVENT_LOG];
+	log_callback = conn->ctx->config->event_log_handler;
 	conn->request_info.log_message = buf;
 	if (log_callback != NULL)
 		processed = log_callback(conn, &conn->request_info);
-	if (processed == FALSE) {
-		(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-		fp = conn->ctx->options[OPT_ERROR_LOG] == NULL ? stderr :
-			mg_fopen(conn->ctx->options[OPT_ERROR_LOG], "a+");
-		(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+	if (processed == MG_ERROR) {
+		fp = conn->ctx->config->error_log_file == NULL ? stderr :
+			mg_fopen(conn->ctx->config->error_log_file, "a+");
 
 		if (fp != NULL) {
 			flockfile(fp);
@@ -469,10 +455,31 @@ cry(struct mg_connection *conn, const char *fmt, ...)
 			(void) fprintf(fp, "%s", buf);
 			fputc('\n', fp);
 			funlockfile(fp);
-			(void) fclose(fp);
+			if (fp != stderr)
+				fclose(fp);
 		}
 	}
 	conn->request_info.log_message = NULL;
+}
+
+/*
+ * Print OpenSSL error messages, if any, to the error log.
+ */
+static void ssl_cry(struct mg_connection *conn, const char *fmt, ...) {
+	char buf[BUFSIZ];
+	unsigned long err;
+	va_list ap;
+
+	/* Log Mongoose message */
+	va_start(ap, fmt);
+	(void) vsnprintf(buf, sizeof(buf), fmt, ap);
+	va_end(ap);
+	cry(conn, buf);
+	
+	/* Loop through any unlogged OpenSSL errors */
+	while ((err = ERR_get_error()) != 0) {
+		cry(conn, "    --> OpenSSL: %s", ERR_error_string(err, NULL));
+	}
 }
 
 /*
@@ -490,7 +497,7 @@ fc(struct mg_context *ctx)
 const char *
 mg_version(void)
 {
-	return (MONGOOSE_VERSION ", $Rev$ $Date$");
+	return (MONGOOSE_VERSION);
 }
 
 static void
@@ -592,22 +599,6 @@ mg_snprintf(struct mg_connection *conn,
 	va_end(ap);
 
 	return (n);
-}
-
-/*
- * Convert string representing a boolean value to a boolean value
- */
-static bool_t
-is_true(const char *str)
-{
-	static const char	*trues[] = {"1", "yes", "true", "ja", NULL};
-	int			i;
-
-	for (i = 0; trues[i] != NULL; i++)
-		if (str != NULL && mg_strcasecmp(str, trues[i]) == 0)
-			return (TRUE);
-
-	return (FALSE);
 }
 
 /*
@@ -735,7 +726,7 @@ send_error(struct mg_connection *conn, int status, const char *reason,
 	DEBUG_TRACE((DEBUG_MGS_PREFIX "%s: %d %s", __func__, status, reason));
 	conn->request_info.status_code = status;
 
-	error_handler = conn->ctx->callbacks[MG_EVENT_HTTP_ERROR];
+	error_handler = conn->ctx->config->http_error_handler;
 	handled = error_handler ?
 	    error_handler(conn, &conn->request_info) : FALSE;
 
@@ -1185,7 +1176,6 @@ spawn_process(struct mg_connection *conn, const char *prog, char *envblk,
 	    &si.hStdOutput, 0, TRUE, DUPLICATE_SAME_ACCESS);
 
 	/* If CGI file is a script, try to read the interpreter line */
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
 	interp = conn->ctx->options[OPT_CGI_INTERPRETER];
 	if (interp == NULL) {
 		line[2] = '\0';
@@ -1209,7 +1199,6 @@ spawn_process(struct mg_connection *conn, const char *prog, char *envblk,
 
 	(void) mg_snprintf(conn, cmdline, sizeof(cmdline), "%s%s%s",
 	    interp, interp[0] == '\0' ? "" : " ", prog);
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
 
 	(void) mg_snprintf(conn, line, sizeof(line), "%s", dir);
 	fix_directory_separators(line);
@@ -1324,7 +1313,7 @@ spawn_process(struct mg_connection *conn, const char *prog, char *envblk,
 			(void) close(fd_stdout);
 
 			/* Execute CGI program. No need to lock: new process */
-			interp = conn->ctx->options[OPT_CGI_INTERPRETER];
+			interp = conn->ctx->config->cgi_interpreter;
 			if (interp == NULL) {
 				(void) execle(prog, prog, NULL, envp);
 				cry(conn, "%s: execle(%s): %s",
@@ -1421,9 +1410,8 @@ pull(FILE *fp, SOCKET sock, SSL *ssl, char *buf, int len)
 }
 
 int
-mg_write(struct mg_connection *conn, const void *buf, int len)
+mg_write(struct mg_connection *conn, const void *buf, size_t len)
 {
-	assert(len >= 0);
 	return ((int) push(NULL, conn->client.sock, conn->ssl,
 				(const char *) buf, (int64_t) len));
 }
@@ -1474,7 +1462,7 @@ url_decode(const char *src, size_t src_len, char *dst, size_t dst_len,
 		    isxdigit(* (unsigned char *) (src + i + 2))) {
 			a = tolower(* (unsigned char *) (src + i + 1));
 			b = tolower(* (unsigned char *) (src + i + 2));
-			dst[j] = ((HEXTOI(a) << 4) | HEXTOI(b)) & 0xff;
+			dst[j] = (char) ((HEXTOI(a) << 4) | HEXTOI(b));
 			i += 2;
 		} else if (is_form_url_encoded && src[i] == '+') {
 			dst[j] = ' ';
@@ -1494,19 +1482,20 @@ url_decode(const char *src, size_t src_len, char *dst, size_t dst_len,
  * Return NULL if the variable not found, or allocated 0-terminated value.
  * It is caller's responsibility to free the returned value.
  */
-int
-mg_get_var(const char *buf, int buf_len, const char *var_name,
+enum mg_error_t
+mg_get_var(const char *buf, size_t buf_len, const char *var_name,
 		char *var_value, size_t var_value_len)
 {
 	const char	*p, *e, *s;
 	char		*val;
 	size_t		var_len, len;
-	int		ret_val;
+	enum mg_error_t	ret_val;
 
 	var_len = strlen(var_name);
 	e = buf + buf_len;
 	val = NULL;
-	ret_val = -1;
+	ret_val = MG_NOT_FOUND;
+	var_value[0] = '\0';
 
 	/* buf is "var1=val1&var2=val2...". Find variable first */
 	for (p = buf; p + var_len < e; p++)
@@ -1524,15 +1513,84 @@ mg_get_var(const char *buf, int buf_len, const char *var_name,
 			/* Try to allocate the buffer */
 			len = s - p;
 			if (len >= var_value_len) {
-				ret_val = 0;  /* buffer if not big enough */
+				ret_val = MG_BUFFER_TOO_SMALL;
 			} else {
-				ret_val = url_decode(p, len,
-				    var_value, len + 1, TRUE);
+				url_decode(p, len, var_value, len + 1, TRUE);
+				ret_val = MG_SUCCESS;
 			}
 			break;
 		}
 
 	return (ret_val);
+}
+
+enum mg_error_t
+mg_get_qsvar(const struct mg_request_info *ri, const char *var_name,
+		char *var_value, size_t var_value_len) {
+  return (ri->query_string == NULL ? MG_NOT_FOUND : mg_get_var(ri->query_string,
+        strlen(ri->query_string), var_name, var_value, var_value_len));
+}
+
+enum mg_error_t
+mg_get_cookie(const struct mg_connection *conn,
+		const char *cookie_name, char *dst, size_t dst_size)
+{
+	const char	*s, *p, *end;
+	int		len;
+
+	dst[0] = '\0';
+	if ((s = mg_get_header(conn, "Cookie")) == NULL)
+		return (MG_NOT_FOUND);
+
+	len = strlen(cookie_name);
+	end = s + strlen(s);
+
+	for (; (s = strstr(s, cookie_name)) != NULL; s += len)
+		if (s[len] == '=') {
+			s += len + 1;
+			if ((p = strchr(s, ' ')) == NULL)
+				p = end;
+			if (p[-1] == ';')
+				p--;
+			if (*s == '"' && p[-1] == '"' && p > s + 1) {
+				s++;
+				p--;
+			}
+			if ((size_t) (p - s) >= dst_size) {
+				return (MG_BUFFER_TOO_SMALL);
+			} else {
+				mg_strlcpy(dst, s, (p - s) + 1);
+				return (MG_SUCCESS);
+			}
+		}
+
+	return (MG_NOT_FOUND);
+}
+
+/*
+ * Get document root for the given URI.
+ */
+static int
+get_document_root(const struct mg_connection *conn, struct vec *document_root)
+{
+	const char	*root, *uri;
+	int		len_of_matched_uri;
+	struct vec	uri_vec, path_vec;
+
+	uri = conn->request_info.uri;
+	len_of_matched_uri = 0;
+	root = next_option(conn->ctx->config->document_root,
+			document_root, NULL);
+
+	while ((root = next_option(root, &uri_vec, &path_vec)) != NULL) {
+		if (memcmp(uri, uri_vec.ptr, uri_vec.len) == 0) {
+			*document_root = path_vec;
+			len_of_matched_uri = uri_vec.len;
+			break;
+		}
+	}
+
+	return (len_of_matched_uri);
 }
 
 /*
@@ -1542,24 +1600,12 @@ static void
 convert_uri_to_file_name(struct mg_connection *conn, const char *uri,
 		char *buf, size_t buf_len)
 {
-	struct mg_context	*ctx = conn->ctx;
-	struct vec		uri_vec, path_vec;
-	const char		*list;
+	struct vec	vec;
+	int		match_len;
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	mg_snprintf(conn, buf, buf_len, "%s%s", ctx->options[OPT_ROOT], uri);
-
-	/* If requested URI has aliased prefix, use alternate root */
-	list = ctx->options[OPT_ALIASES];
-
-	while ((list = next_option(list, &uri_vec, &path_vec)) != NULL) {
-		if (memcmp(uri, uri_vec.ptr, uri_vec.len) == 0) {
-			(void) mg_snprintf(conn, buf, buf_len, "%.*s%s",
-			    path_vec.len, path_vec.ptr, uri + uri_vec.len);
-			break;
-		}
-	}
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+	match_len = get_document_root(conn, &vec);
+	(void) mg_snprintf(conn, buf, buf_len, "%.*s%s",
+			    vec.len, vec.ptr, uri + match_len);
 
 #ifdef _WIN32
 	fix_directory_separators(buf);
@@ -1790,18 +1836,15 @@ get_mime_type(struct mg_context *ctx, const char *path, struct vec *vec)
 	 * Scan user-defined mime types first, in case user wants to
 	 * override default mime types.
 	 */
-	(void) pthread_rwlock_rdlock(&ctx->rwlock);
-	list = ctx->options[OPT_MIME_TYPES];
+	list = ctx->config->mime_types;
 	while ((list = next_option(list, &ext_vec, &mime_vec)) != NULL) {
 		/* ext now points to the path suffix */
 		ext = path + path_len - ext_vec.len;
 		if (mg_strncasecmp(ext, ext_vec.ptr, ext_vec.len) == 0) {
 			*vec = mime_vec;
-			(void) pthread_rwlock_unlock(&ctx->rwlock);
 			return;
 		}
 	}
-	(void) pthread_rwlock_unlock(&ctx->rwlock);
 
 	/* Now scan built-in mime types */
 	for (i = 0; mime_types[i].extension != NULL; i++) {
@@ -2078,7 +2121,7 @@ bin2str(char *to, const unsigned char *p, size_t len)
  * Return stringified MD5 hash for list of vectors.
  * buf must point to 33-bytes long buffer
  */
-static void
+void
 mg_md5(char *buf, ...)
 {
 	unsigned char	hash[16];
@@ -2134,13 +2177,12 @@ open_auth_file(struct mg_connection *conn, const char *path)
 	struct mgstat		st;
 	FILE			*fp;
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	if (ctx->options[OPT_AUTH_GPASSWD] != NULL) {
+	if (ctx->config->global_passwords_file != NULL) {
 		/* Use global passwords file */
-		fp =  mg_fopen(ctx->options[OPT_AUTH_GPASSWD], "r");
+		fp =  mg_fopen(ctx->config->global_passwords_file, "r");
 		if (fp == NULL)
 			cry(fc(ctx), "fopen(%s): %s",
-			    ctx->options[OPT_AUTH_GPASSWD], strerror(ERRNO));
+			ctx->config->global_passwords_file, strerror(ERRNO));
 	} else if (!mg_stat(path, &st) && st.is_directory) {
 		(void) mg_snprintf(conn, name, sizeof(name), "%s%c%s",
 		    path, DIRSEP, PASSWORDS_FILE_NAME);
@@ -2166,7 +2208,6 @@ open_auth_file(struct mg_connection *conn, const char *path)
 		    (int) (e - p), p, DIRSEP, PASSWORDS_FILE_NAME);
 		fp = mg_fopen(name, "r");
 	}
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
 
 	return (fp);
 }
@@ -2247,16 +2288,11 @@ static bool_t
 authorize(struct mg_connection *conn, FILE *fp)
 {
 	struct ah	ah;
-	char		line[256], f_user[256], domain[256], ha1[256],
+	char		line[256], f_user[256], ha1[256],
 			f_domain[256], buf[MAX_REQUEST_SIZE];
 
 	if (!parse_auth_header(conn, buf, sizeof(buf), &ah))
 		return (FALSE);
-
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	mg_strlcpy(domain, conn->ctx->options[OPT_AUTH_DOMAIN], sizeof(domain));
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
-
 
 	/* Loop over passwords file */
 	while (fgets(line, sizeof(line), fp) != NULL) {
@@ -2264,7 +2300,8 @@ authorize(struct mg_connection *conn, FILE *fp)
 		if (sscanf(line, "%[^:]:%[^:]:%s", f_user, f_domain, ha1) != 3)
 			continue;
 
-		if (!strcmp(ah.user, f_user) && !strcmp(domain, f_domain))
+		if (!strcmp(ah.user, f_user) &&
+		    !strcmp(conn->ctx->config->auth_domain, f_domain))
 			return (check_password(
 			    conn->request_info.request_method,
 			    ha1, ah.uri, ah.nonce, ah.nc, ah.cnonce, ah.qop,
@@ -2289,8 +2326,7 @@ check_authorization(struct mg_connection *conn, const char *path)
 	fp = NULL;
 	authorized = TRUE;
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	list = conn->ctx->options[OPT_PROTECT];
+	list = conn->ctx->config->protect;
 	while ((list = next_option(list, &uri_vec, &filename_vec)) != NULL) {
 		if (!memcmp(conn->request_info.uri, uri_vec.ptr, uri_vec.len)) {
 			(void) mg_snprintf(conn, fname, sizeof(fname), "%.*s",
@@ -2301,7 +2337,6 @@ check_authorization(struct mg_connection *conn, const char *path)
 			break;
 		}
 	}
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
 
 	if (fp == NULL)
 		fp = open_auth_file(conn, path);
@@ -2317,18 +2352,13 @@ check_authorization(struct mg_connection *conn, const char *path)
 static void
 send_authorization_request(struct mg_connection *conn)
 {
-	char domain[128];
-
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	mg_strlcpy(domain, conn->ctx->options[OPT_AUTH_DOMAIN], sizeof(domain));
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
-
 	conn->request_info.status_code = 401;
 	(void) mg_printf(conn,
 	    "HTTP/1.1 401 Unauthorized\r\n"
 	    "WWW-Authenticate: Digest qop=\"auth\", "
 	    "realm=\"%s\", nonce=\"%lu\"\r\n\r\n",
-	    domain, (unsigned long) time(NULL));
+	    conn->ctx->config->auth_domain,
+	    (unsigned long) time(NULL));
 }
 
 static bool_t
@@ -2337,10 +2367,8 @@ is_authorized_for_put(struct mg_connection *conn)
 	FILE	*fp;
 	int	ret = FALSE;
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	fp = conn->ctx->options[OPT_AUTH_PUT] == NULL ? NULL :
-		mg_fopen(conn->ctx->options[OPT_AUTH_PUT], "r");
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+	fp = conn->ctx->config->put_delete_passwords_file == NULL ? NULL :
+		mg_fopen(conn->ctx->config->put_delete_passwords_file, "r");
 
 
 	if (fp != NULL) {
@@ -2351,21 +2379,18 @@ is_authorized_for_put(struct mg_connection *conn)
 	return (ret);
 }
 
-int
+enum mg_error_t
 mg_modify_passwords_file(struct mg_context *ctx, const char *fname,
 		const char *user, const char *pass)
 {
 	int		found;
-	char		line[512], u[512], d[512], domain[512],
-				ha1[33], tmp[FILENAME_MAX];
+	char		line[512], u[512], d[512], ha1[33], tmp[FILENAME_MAX];
+	const char	*domain;
 	FILE		*fp, *fp2;
 
 	found = 0;
 	fp = fp2 = NULL;
-
-	(void) pthread_rwlock_rdlock(&ctx->rwlock);
-	mg_strlcpy(domain, ctx->options[OPT_AUTH_DOMAIN], sizeof(domain));
-	(void) pthread_rwlock_unlock(&ctx->rwlock);
+	domain = ctx->config->auth_domain;
 
 	/* Regard empty password as no password - remove user record. */
 	if (pass[0] == '\0')
@@ -2380,10 +2405,10 @@ mg_modify_passwords_file(struct mg_context *ctx, const char *fname,
 	/* Open the given file and temporary file */
 	if ((fp = mg_fopen(fname, "r")) == NULL) {
 		cry(fc(ctx), "Cannot open %s: %s", fname, strerror(errno));
-		return (0);
+		return (MG_ERROR);
 	} else if ((fp2 = mg_fopen(tmp, "w+")) == NULL) {
 		cry(fc(ctx), "Cannot open %s: %s", tmp, strerror(errno));
-		return (0);
+		return (MG_ERROR);
 	}
 
 	/* Copy the stuff to temporary file */
@@ -2417,7 +2442,7 @@ mg_modify_passwords_file(struct mg_context *ctx, const char *fname,
 	(void) mg_remove(fname);
 	(void) mg_rename(tmp, fname);
 
-	return (0);
+	return (MG_SUCCESS);
 }
 
 struct de {
@@ -2645,6 +2670,12 @@ send_opened_file_stream(struct mg_connection *conn, FILE *fp, int64_t len)
 	}
 }
 
+static int
+parse_range_header(const char *header, int64_t *a, int64_t *b)
+{
+	return sscanf(header, "bytes=%" INT64_FMT "-%" INT64_FMT, a, b);
+}
+
 /*
  * Send regular file contents.
  */
@@ -2674,8 +2705,7 @@ send_file(struct mg_connection *conn, const char *path, struct mgstat *stp)
 	/* If Range: header specified, act accordingly */
 	r1 = r2 = 0;
 	hdr = mg_get_header(conn, "Range");
-	if (hdr != NULL && (n = sscanf(hdr,
-	    "bytes=%" INT64_FMT "-%" INT64_FMT, &r1, &r2)) > 0) {
+	if (hdr != NULL && (n = parse_range_header(hdr, &r1, &r2)) > 0) {
 		conn->request_info.status_code = 206;
 		(void) fseeko(fp, (off_t) r1, SEEK_SET);
 		cl = n == 2 ? r2 - r1 + 1: cl - r1;
@@ -2818,8 +2848,7 @@ substitute_index_file(struct mg_connection *conn,
 	 * Traverse index files list. For each entry, append it to the given
 	 * path and see if the file exists. If it exists, break the loop
 	 */
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	list = conn->ctx->options[OPT_INDEX_FILES];
+	list = conn->ctx->config->index_files;
 	found = FALSE;
 
 	while ((list = next_option(list, &filename_vec, NULL)) != NULL) {
@@ -2840,7 +2869,6 @@ substitute_index_file(struct mg_connection *conn,
 			break;
 		}
 	}
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
 
 	/* If no index file exists, restore directory path */
 	if (found == FALSE)
@@ -3012,7 +3040,7 @@ prepare_cgi_environment(struct mg_connection *conn, const char *prog,
 		struct cgi_env_block *blk)
 {
 	const char	*s, *script_filename, *slash;
-	struct vec	var_vec;
+	struct vec	var_vec, root;
 	char		*p;
 	int		i;
 
@@ -3024,11 +3052,11 @@ prepare_cgi_environment(struct mg_connection *conn, const char *prog,
 	if ((s = strrchr(prog, '/')) != NULL)
 		script_filename = s + 1;
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	addenv(blk, "SERVER_NAME=%s", conn->ctx->options[OPT_AUTH_DOMAIN]);
-	addenv(blk, "SERVER_ROOT=%s", conn->ctx->options[OPT_ROOT]);
-	addenv(blk, "DOCUMENT_ROOT=%s", conn->ctx->options[OPT_ROOT]);
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+	get_document_root(conn, &root);
+
+	addenv(blk, "SERVER_NAME=%s", conn->ctx->config->auth_domain);
+	addenv(blk, "SERVER_ROOT=%.*s", root.len, root.ptr);
+	addenv(blk, "DOCUMENT_ROOT=%.*s", root.len, root.ptr);
 
 	/* Prepare the environment block */
 	addenv(blk, "%s", "GATEWAY_INTERFACE=CGI/1.1");
@@ -3095,11 +3123,9 @@ prepare_cgi_environment(struct mg_connection *conn, const char *prog,
 	}
 
 	/* Add user-specified variables */
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	s = conn->ctx->options[OPT_CGI_ENV];
+	s = conn->ctx->config->cgi_environment;
 	while ((s = next_option(s, &var_vec, NULL)) != NULL)
 		addenv(blk, "%.*s", var_vec.len, var_vec.ptr);
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
 
 	blk->vars[blk->nvars++] = NULL;
 	blk->buf[blk->len++] = '\0';
@@ -3258,15 +3284,14 @@ static void
 put_file(struct mg_connection *conn, const char *path)
 {
 	struct mgstat	st;
+	const char	*range;
+	int64_t		r1, r2;
 	FILE		*fp;
 	int		rc;
 
 	conn->request_info.status_code = mg_stat(path, &st) == 0 ? 200 : 201;
 
-	if (mg_get_header(conn, "Range")) {
-		send_error(conn, 501, "Not Implemented",
-		    "%s", "Range support for PUT requests is not implemented");
-	} else if ((rc = put_dir(path)) == 0) {
+	if ((rc = put_dir(path)) == 0) {
 		(void) mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n",
 		    conn->request_info.status_code);
 	} else if (rc == -1) {
@@ -3277,6 +3302,13 @@ put_file(struct mg_connection *conn, const char *path)
 		    "fopen(%s): %s", path, strerror(ERRNO));
 	} else {
 		set_close_on_exec(fileno(fp));
+		range = mg_get_header(conn, "Content-Range");
+		r1 = r2 = 0;
+		if (range != NULL && parse_range_header(range, &r1, &r2) > 0) {
+			conn->request_info.status_code = 206;
+			/* TODO(lsm): handle seek error */
+			(void) fseeko(fp, (off_t) r1, SEEK_SET);
+		}
 		if (handle_request_body(conn, fp))
 			(void) mg_printf(conn, "HTTP/1.1 %d OK\r\n\r\n",
 			    conn->request_info.status_code);
@@ -3291,9 +3323,12 @@ static void
 do_ssi_include(struct mg_connection *conn, const char *ssi, char *tag,
 		int include_level)
 {
-	char	file_name[BUFSIZ], path[FILENAME_MAX], *p;
-	bool_t	is_ssi;
-	FILE	*fp;
+	char		file_name[BUFSIZ], path[FILENAME_MAX], *p;
+	struct vec	root;
+	bool_t		is_ssi;
+	FILE		*fp;
+
+	get_document_root(conn, &root);
 
 	/*
 	 * sscanf() is safe here, since send_ssi_file() also uses buffer
@@ -3301,10 +3336,8 @@ do_ssi_include(struct mg_connection *conn, const char *ssi, char *tag,
 	 */
 	if (sscanf(tag, " virtual=\"%[^\"]\"", file_name) == 1) {
 		/* File name is relative to the webserver root */
-		(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-		(void) mg_snprintf(conn, path, sizeof(path), "%s%c%s",
-		    conn->ctx->options[OPT_ROOT], DIRSEP, file_name);
-		(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+		(void) mg_snprintf(conn, path, sizeof(path), "%.*s%c%s",
+		    root.len, root.ptr, DIRSEP, file_name);
 	} else if (sscanf(tag, " file=\"%[^\"]\"", file_name) == 1) {
 		/*
 		 * File name is relative to the webserver working directory
@@ -3328,10 +3361,8 @@ do_ssi_include(struct mg_connection *conn, const char *ssi, char *tag,
 		    tag, path, strerror(ERRNO));
 	} else {
 		set_close_on_exec(fileno(fp));
-		(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
 		is_ssi = match_extension(path,
-		    conn->ctx->options[OPT_SSI_EXTENSIONS]);
-		(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+		    conn->ctx->config->ssi_extensions);
 		if (is_ssi) {
 			send_ssi_file(conn, path, fp, include_level + 1);
 		} else {
@@ -3375,7 +3406,7 @@ send_ssi_file(struct mg_connection *conn, const char *path, FILE *fp,
 	while ((ch = fgetc(fp)) != EOF) {
 		if (in_ssi_tag && ch == '>') {
 			in_ssi_tag = FALSE;
-			buf[len++] = ch & 0xff;
+			buf[len++] = (char) ch;
 			buf[len] = '\0';
 			assert(len <= (int) sizeof(buf));
 			if (len < 6 || memcmp(buf, "<!--#", 5) != 0) {
@@ -3448,7 +3479,7 @@ send_ssi(struct mg_connection *conn, const char *path)
  * a directory, or call embedded function, etcetera.
  */
 static void
-analyze_request(struct mg_connection *conn)
+handle_request(struct mg_connection *conn)
 {
 	struct mg_request_info *ri;
 	char			path[FILENAME_MAX];
@@ -3461,7 +3492,7 @@ analyze_request(struct mg_connection *conn)
 	if ((conn->request_info.query_string = strchr(ri->uri, '?')) != NULL)
 		* conn->request_info.query_string++ = '\0';
 	uri_len = strlen(ri->uri);
-	new_request_callback = conn->ctx->callbacks[MG_EVENT_NEW_REQUEST];
+	new_request_callback = conn->ctx->config->new_request_handler;
 	(void) url_decode(ri->uri, uri_len, ri->uri, uri_len + 1, FALSE);
 	remove_double_dots_and_double_slashes(ri->uri);
 	convert_uri_to_file_name(conn, ri->uri, path, sizeof(path));
@@ -3473,9 +3504,11 @@ analyze_request(struct mg_connection *conn)
 	} else if (strstr(path, PASSWORDS_FILE_NAME)) {
 		/* Do not allow to view passwords files */
 		send_error(conn, 403, "Forbidden", "Access Forbidden");
+	} else if (conn->ctx->config->document_root == NULL) {
+		send_error(conn, 404, "Not Found", "Not Found");
 	} else if ((!strcmp(ri->request_method, "PUT") ||
 	    !strcmp(ri->request_method, "DELETE")) &&
-	    (conn->ctx->options[OPT_AUTH_PUT] == NULL ||
+	    (conn->ctx->config->put_delete_passwords_file == NULL ||
 	     !is_authorized_for_put(conn))) {
 		send_authorization_request(conn);
 	} else if (!strcmp(ri->request_method, "PUT")) {
@@ -3494,15 +3527,14 @@ analyze_request(struct mg_connection *conn)
 		    "Location: %s/\r\n\r\n", ri->uri);
 	} else if (st.is_directory &&
 	    substitute_index_file(conn, path, sizeof(path), &st) == FALSE) {
-		if (is_true(conn->ctx->options[OPT_DIR_LIST])) {
+		if (conn->ctx->config->enable_directory_listing) {
 			send_directory(conn, path);
 		} else {
 			send_error(conn, 403, "Directory Listing Denied",
 			    "Directory listing denied");
 		}
 #if !defined(NO_CGI)
-	} else if (match_extension(path,
-	    conn->ctx->options[OPT_CGI_EXTENSIONS])) {
+	} else if (match_extension(path, conn->ctx->config->cgi_extensions)) {
 		if (strcmp(ri->request_method, "POST") &&
 		    strcmp(ri->request_method, "GET")) {
 			send_error(conn, 501, "Not Implemented",
@@ -3512,8 +3544,7 @@ analyze_request(struct mg_connection *conn)
 		}
 #endif /* NO_CGI */
 #if !defined(NO_SSI)
-	} else if (match_extension(path,
-	    conn->ctx->options[OPT_SSI_EXTENSIONS])) {
+	} else if (match_extension(path, conn->ctx->config->ssi_extensions)) {
 		send_ssi(conn, path);
 #endif /* NO_SSI */
 	} else if (is_not_modified(conn, &st)) {
@@ -3526,50 +3557,51 @@ analyze_request(struct mg_connection *conn)
 static void
 close_all_listening_sockets(struct mg_context *ctx)
 {
-	int	i;
-
-	for (i = 0; i < ctx->num_listeners; i++)
-		(void) closesocket(ctx->listeners[i].sock);
-	ctx->num_listeners = 0;
+	struct socket	*sp, *tmp;
+	for (sp = ctx->listening_sockets; sp != NULL; sp = tmp) {
+		tmp = sp->next;
+		(void) closesocket(sp->sock);
+		free(sp);
+	}
+	ctx->listening_sockets = NULL;
 }
 
-static bool_t
-set_ports_option(struct mg_context *ctx, const char *list)
+static enum mg_error_t
+set_ports_option(struct mg_context *ctx)
 {
 	SOCKET		sock;
 	int		is_ssl;
 	struct vec	vec;
 	struct socket	*listener;
+	const char	*list = ctx->config->listening_ports;
 
 	close_all_listening_sockets(ctx);
-	assert(ctx->num_listeners == 0);
 
 	while ((list = next_option(list, &vec, NULL)) != NULL) {
 
 		is_ssl	= vec.ptr[vec.len - 1] == 's' ? TRUE : FALSE;
-		listener = ctx->listeners + ctx->num_listeners;
 
-		if (ctx->num_listeners >=
-		    (int) (ARRAY_SIZE(ctx->listeners) - 1)) {
+		if ((listener = calloc(1, sizeof(*listener))) == NULL) {
 			cry(fc(ctx), "%s", "Too many listeninig sockets");
-			return (FALSE);
+			return (MG_ERROR);
 		} else if ((sock = mg_open_listening_port(ctx,
 		    vec.ptr, &listener->lsa)) == INVALID_SOCKET) {
 			cry(fc(ctx), "cannot bind to %.*s", vec.len, vec.ptr);
-			return (FALSE);
+			return (MG_ERROR);
 		} else if (is_ssl == TRUE && ctx->ssl_ctx == NULL) {
 			(void) closesocket(sock);
 			cry(fc(ctx), "cannot add SSL socket, please specify "
 			    "-ssl_cert option BEFORE -ports option");
-			return (FALSE);
+			return (MG_ERROR);
 		} else {
 			listener->sock = sock;
 			listener->is_ssl = is_ssl;
-			ctx->num_listeners++;
+			listener->next = ctx->listening_sockets;
+			ctx->listening_sockets = listener;
 		}
 	}
 
-	return (TRUE);
+	return (MG_SUCCESS);
 }
 
 static void
@@ -3591,10 +3623,8 @@ log_access(const struct mg_connection *conn)
 	FILE	*fp;
 	char	date[64];
 
-	(void) pthread_rwlock_rdlock(&conn->ctx->rwlock);
-	fp = conn->ctx->options[OPT_ACCESS_LOG] == NULL ?  NULL :
-		mg_fopen(conn->ctx->options[OPT_ACCESS_LOG], "a+");
-	(void) pthread_rwlock_unlock(&conn->ctx->rwlock);
+	fp = conn->ctx->config->access_log_file == NULL ?  NULL :
+		mg_fopen(conn->ctx->config->access_log_file, "a+");
 
 	if (fp == NULL)
 		return;
@@ -3633,13 +3663,17 @@ isbyte(int n) {
  * Verify given socket address against the ACL.
  * Return -1 if ACL is malformed, 0 if address is disallowed, 1 if allowed.
  */
-static int
-check_acl(struct mg_context *ctx, const char *list, const struct usa *usa)
+static enum mg_error_t
+check_acl(struct mg_context *ctx, const struct usa *usa)
 {
 	int		a, b, c, d, n, mask, allowed;
 	char		flag;
 	uint32_t	acl_subnet, acl_mask, remote_ip;
 	struct vec	vec;
+	const char	*list = ctx->config->acl;
+
+	if (list == NULL)
+		return (MG_SUCCESS);
 
 	(void) memcpy(&remote_ip, &usa->u.sin.sin_addr, sizeof(remote_ip));
 
@@ -3654,21 +3688,21 @@ check_acl(struct mg_context *ctx, const char *list, const struct usa *usa)
 		    &flag, &a, &b, &c, &d, &n) != 5) {
 			cry(fc(ctx),
 			    "%s: subnet must be [+|-]x.x.x.x[/x]", __func__);
-			return (-1);
+			return (MG_ERROR);
 		} else if (flag != '+' && flag != '-') {
 			cry(fc(ctx), "%s: flag must be + or -: [%s]",
 			    __func__, vec.ptr);
-			return (-1);
+			return (MG_ERROR);
 		} else if (!isbyte(a)||!isbyte(b)||!isbyte(c)||!isbyte(d)) {
 			cry(fc(ctx),
 			    "%s: bad ip address: [%s]", __func__, vec.ptr);
-			return (-1);
+			return (MG_ERROR);
 		} else if (sscanf(vec.ptr + n, "/%d", &mask) == 0) {
 			/* Do nothing, no mask specified */
 		} else if (mask < 0 || mask > 32) {
 			cry(fc(ctx), "%s: bad subnet mask: %d [%s]",
 			    __func__, n, vec.ptr);
-			return (-1);
+			return (MG_ERROR);
 		}
 
 		acl_subnet = (a << 24) | (b << 16) | (c << 8) | d;
@@ -3678,7 +3712,7 @@ check_acl(struct mg_context *ctx, const char *list, const struct usa *usa)
 			allowed = flag;
 	}
 
-	return (allowed == '+' ? 1 : 0);
+	return (allowed == '+' ? MG_SUCCESS : MG_ERROR);
 }
 
 static void
@@ -3689,60 +3723,30 @@ add_to_set(SOCKET fd, fd_set *set, int *max_fd)
 		*max_fd = (int) fd;
 }
 
-/*
- * Deallocate mongoose context, free up the resources
- */
-static void
-mg_fini(struct mg_context *ctx)
-{
-	int	i;
-
-	close_all_listening_sockets(ctx);
-
-	/* Wait until all threads finish */
-	(void) pthread_mutex_lock(&ctx->mutex);
-	while (ctx->num_threads > 0)
-		(void) pthread_cond_wait(&ctx->thr_cond, &ctx->mutex);
-	(void) pthread_mutex_unlock(&ctx->mutex);
-
-	/* Deallocate all options */
-	for (i = 0; i < NUM_OPTIONS; i++)
-		if (ctx->options[i] != NULL)
-			free(ctx->options[i]);
-
-	/* Deallocate SSL context */
-	if (ctx->ssl_ctx)
-		SSL_CTX_free(ctx->ssl_ctx);
-
-	(void) pthread_rwlock_destroy(&ctx->rwlock);
-	(void) pthread_mutex_destroy(&ctx->mutex);
-	(void) pthread_cond_destroy(&ctx->thr_cond);
-	(void) pthread_cond_destroy(&ctx->empty_cond);
-	(void) pthread_cond_destroy(&ctx->full_cond);
-
-	/* Signal mg_stop() that we're done */
-	ctx->stop_flag = 2;
-}
-
 #if !defined(_WIN32)
-static bool_t
-set_uid_option(struct mg_context *ctx, const char *uid)
+static enum mg_error_t
+set_uid_option(struct mg_context *ctx)
 {
 	struct passwd	*pw;
-	int		retval = FALSE;
+	const char	*uid = ctx->config->uid;
+	enum mg_error_t error;
 
-	if ((pw = getpwnam(uid)) == NULL)
-		cry(fc(ctx), "%s: unknown user [%s]", __func__, uid);
-	else if (setgid(pw->pw_gid) == -1)
-		cry(fc(ctx), "%s: setgid(%s): %s",
-		    __func__, uid, strerror(errno));
-	else if (setuid(pw->pw_uid) == -1)
-		cry(fc(ctx), "%s: setuid(%s): %s",
-		    __func__, uid, strerror(errno));
-	else
-		retval = TRUE;
+	if (uid == NULL) {
+		error = MG_SUCCESS;
+	} else {
+		if ((pw = getpwnam(uid)) == NULL)
+			cry(fc(ctx), "%s: unknown user [%s]", __func__, uid);
+		else if (setgid(pw->pw_gid) == -1)
+			cry(fc(ctx), "%s: setgid(%s): %s",
+			    __func__, uid, strerror(errno));
+		else if (setuid(pw->pw_uid) == -1)
+			cry(fc(ctx), "%s: setuid(%s): %s",
+			    __func__, uid, strerror(errno));
+		else
+			error = MG_SUCCESS;
+	}
 
-	return (retval);
+	return (error);
 }
 #endif /* !_WIN32 */
 
@@ -3805,33 +3809,39 @@ load_dll(struct mg_context *ctx, const char *dll_name, struct ssl_func *sw)
 /*
  * Dynamically load SSL library. Set up ctx->ssl_ctx pointer.
  */
-static bool_t
-set_ssl_option(struct mg_context *ctx, const char *pem)
+static enum mg_error_t
+set_ssl_option(struct mg_context *ctx)
 {
 	SSL_CTX		*CTX;
-	int		i, size, retval = FALSE;
+	int		i, size;
+	const char	*pem = ctx->config->ssl_certificate;
+
+	if (pem == NULL)
+		return (MG_SUCCESS);
 
 	if (load_dll(ctx, SSL_LIB, ssl_sw) == FALSE ||
 	    load_dll(ctx, CRYPTO_LIB, crypto_sw) == FALSE)
-		return (FALSE);
+		return (MG_ERROR);
 
 	/* Initialize SSL crap */
 	SSL_library_init();
+	SSL_load_error_strings();
 
 	if ((CTX = SSL_CTX_new(SSLv23_server_method())) == NULL)
-		cry(fc(ctx), "SSL_CTX_new error");
-	else if (ctx->callbacks[MG_EVENT_SSL_PASSWORD] != NULL)
+		ssl_cry(fc(ctx), "SSL_CTX_new error");
+	else if (ctx->config->ssl_password_handler != NULL)
 		SSL_CTX_set_default_passwd_cb(CTX,
-				ctx->callbacks[MG_EVENT_SSL_PASSWORD]);
+		    ctx->config->ssl_password_handler);
 
 	if (CTX != NULL && SSL_CTX_use_certificate_file(
-	    CTX, pem, SSL_FILETYPE_PEM) == 0)
-		cry(fc(ctx), "%s: cannot open %s", __func__, pem);
-	else if (CTX != NULL && SSL_CTX_use_PrivateKey_file(
-	    CTX, pem, SSL_FILETYPE_PEM) == 0)
-		cry(fc(ctx), "%s: cannot open %s", NULL, pem);
-	else
-		retval = TRUE;
+	    CTX, pem, SSL_FILETYPE_PEM) == 0) {
+		ssl_cry(fc(ctx), "%s: cannot open %s", __func__, pem);
+		return (MG_ERROR);
+	} else if (CTX != NULL && SSL_CTX_use_PrivateKey_file(
+	    CTX, pem, SSL_FILETYPE_PEM) == 0) {
+		ssl_cry(fc(ctx), "%s: cannot open %s", NULL, pem);
+		return (MG_ERROR);
+	}
 
 	/*
 	 * Initialize locking callbacks, needed for thread safety.
@@ -3839,8 +3849,8 @@ set_ssl_option(struct mg_context *ctx, const char *pem)
 	 */
 	size = sizeof(pthread_mutex_t) * CRYPTO_num_locks();
 	if ((ssl_mutexes = (pthread_mutex_t *) malloc(size)) == NULL) {
-		cry(fc(ctx), "%s: cannot allocate mutexes", __func__);
-		return (FALSE);
+		ssl_cry(fc(ctx), "%s: cannot allocate mutexes", __func__);
+		return (MG_ERROR);
 	}
 
 	for (i = 0; i < CRYPTO_num_locks(); i++)
@@ -3852,240 +3862,45 @@ set_ssl_option(struct mg_context *ctx, const char *pem)
 	/* Done with everything. Save the context. */
 	ctx->ssl_ctx = CTX;
 
-	return (retval);
+	return (MG_SUCCESS);
 }
 #endif /* !NO_SSL */
 
-static bool_t
-set_gpass_option(struct mg_context *ctx, const char *path)
+static enum mg_error_t
+set_gpass_option(struct mg_context *ctx)
 {
 	struct mgstat	mgstat;
-	ctx = NULL;
-	return (mg_stat(path, &mgstat) == 0);
+	const char	*path = ctx->config->global_passwords_file;
+
+	return (path == NULL || mg_stat(path, &mgstat) == 0 ?
+		MG_SUCCESS : MG_ERROR);
 }
 
-static bool_t
-set_acl_option(struct mg_context *ctx, const char *acl)
+static enum mg_error_t
+set_acl_option(struct mg_context *ctx)
 {
 	struct usa	fake;
-
-	return (check_acl(ctx, acl, &fake) != -1);
-}
-
-/*
- * Check if the comma-separated list of options has a format of key-value
- * pairs: "k1=v1,k2=v2". Return FALSE if any entry has invalid key or value.
- */
-static bool_t
-set_kv_list_option(struct mg_context *ctx, const char *str)
-{
-	const char	*list;
-	struct vec	key, value;
-
-	list = str;
-	while ((list = next_option(list, &key, &value)) != NULL)
-		if (key.len == 0 || value.len == 0) {
-			cry(fc(ctx), "Invalid list specified: [%s], "
-			    "expecting key1=value1,key2=value2,...", str);
-			return (FALSE);
-		}
-
-	return (TRUE);
+	return (check_acl(ctx, &fake));
 }
 
 static bool_t
-set_root_option(struct mg_context *ctx, const char *root)
+verify_document_root(struct mg_context *ctx, const char *root)
 {
-	struct mgstat buf;
-	if ( mg_stat(root, &buf) != 0) {
+	char		path[FILENAME_MAX], *p;
+	struct mgstat	buf;
+
+	if ((p = strchr(root, ',')) == NULL) {
+		mg_strlcpy(path, root, sizeof(path));
+	} else {
+		mg_strlcpy(path, root, p - root + 1);
+	}
+
+	if (mg_stat(path, &buf) != 0) {
 		cry(fc(ctx), "Invalid root directory: \"%s\"", root);
 		return (FALSE);
-
 	}
 	return (TRUE);
 }
-
-static const struct mg_option known_options[] = {
-	{"root", "\tWeb root directory", ".", OPT_ROOT, set_root_option},
-	{"index_files",	"Index files", "index.html,index.htm,index.cgi",
-		OPT_INDEX_FILES, NULL},
-#if !defined(NO_SSL)
-	{"ssl_cert", "SSL certificate file", NULL,
-		OPT_SSL_CERTIFICATE, &set_ssl_option},
-#endif /* !NO_SSL */
-	{"ports", "Listening ports", NULL,
-		OPT_PORTS, &set_ports_option},
-	{"dir_list", "Directory listing", "yes",
-		OPT_DIR_LIST, NULL},
-	{"protect", "URI to htpasswd mapping", NULL,
-		OPT_PROTECT, &set_kv_list_option},
-#if !defined(NO_CGI)
-	{"cgi_ext", "CGI extensions", ".cgi,.pl,.php",
-		OPT_CGI_EXTENSIONS, NULL},
-	{"cgi_interp", "CGI interpreter to use with all CGI scripts", NULL,
-		OPT_CGI_INTERPRETER, NULL},
-	{"cgi_env", "Custom CGI enviroment variables", NULL,
-		OPT_CGI_ENV, &set_kv_list_option},
-#endif /* NO_CGI */
-	{"ssi_ext", "SSI extensions", ".shtml,.shtm",
-		OPT_SSI_EXTENSIONS, NULL},
-	{"auth_realm", "Authentication domain name", "mydomain.com",
-		OPT_AUTH_DOMAIN, NULL},
-	{"auth_gpass", "Global passwords file", NULL,
-		OPT_AUTH_GPASSWD, &set_gpass_option},
-	{"auth_PUT", "PUT,DELETE auth file", NULL,
-		OPT_AUTH_PUT, NULL},
-#if !defined(_WIN32)
-	{"uid", "\tRun as user", NULL, OPT_UID, &set_uid_option},
-#endif /* !_WIN32 */
-	{"access_log", "Access log file", NULL, OPT_ACCESS_LOG, NULL},
-	{"error_log", "Error log file", NULL, OPT_ERROR_LOG, NULL},
-	{"aliases", "Path=URI mappings", NULL,
-		OPT_ALIASES, &set_kv_list_option},
-	{"admin_uri", "Administration page URI", NULL, OPT_ADMIN_URI, NULL},
-	{"acl", "\tAllow/deny IP addresses/subnets", NULL,
-		OPT_ACL, &set_acl_option},
-	{"max_threads", "Maximum simultaneous threads to spawn", "100",
-		OPT_MAX_THREADS, NULL},
-	{"idle_time", "Time in seconds connection stays idle", "10",
-		OPT_IDLE_TIME, NULL},
-	{"mime_types", "Comma separated list of ext=mime_type pairs", NULL,
-		OPT_MIME_TYPES, &set_kv_list_option},
-	{NULL, NULL, NULL, 0, NULL}
-};
-
-static const struct mg_option *
-find_opt(const char *opt_name)
-{
-	int	i;
-
-	for (i = 0; known_options[i].name != NULL; i++)
-		if (!strcmp(opt_name, known_options[i].name))
-			return (known_options + i);
-
-	return (NULL);
-}
-
-int
-mg_set_option(struct mg_context *ctx, const char *opt, const char *val)
-{
-	const struct mg_option	*option;
-	int			i, retval;
-
-	DEBUG_TRACE((DEBUG_MGS_PREFIX "%s: [%s]->[%s]", __func__, opt, val));
-	if (opt != NULL && (option = find_opt(opt)) != NULL) {
-		i = (int) (option - known_options);
-		retval = option->setter ? option->setter(ctx, val) : TRUE;
-
-		/*
-		 * Write lock the option. Free old value, set new value.
-		 * Make sure no calls that may trigger read lock are made.
-		 */
-		(void) pthread_rwlock_wrlock(&ctx->rwlock);
-		if (ctx->options[option->index] != NULL)
-			free(ctx->options[option->index]);
-		ctx->options[option->index] = val ? mg_strdup(val) : NULL;
-		(void) pthread_rwlock_unlock(&ctx->rwlock);
-
-		if (retval == FALSE)
-			cry(fc(ctx), "%s(%s): failure", __func__, opt);
-	} else {
-		cry(fc(ctx), "%s: No such option: [%s]", __func__, opt);
-		retval = -1;
-	}
-
-	return (retval);
-}
-
-void
-mg_show_usage_string(FILE *fp)
-{
-	const struct mg_option	*o;
-
-	(void) fprintf(stderr,
-	    "Mongoose version %s (c) Sergey Lyubka\n"
-	    "usage: mongoose [options] [config_file]\n", mg_version());
-
-	fprintf(fp, "  -A <htpasswd_file> <realm> <user> <passwd>\n");
-
-	for (o = known_options; o->name != NULL; o++) {
-		(void) fprintf(fp, "  -%s\t%s", o->name, o->description);
-		if (o->default_value != NULL)
-			fprintf(fp, " (default: \"%s\")", o->default_value);
-		fputc('\n', fp);
-	}
-}
-
-const char *
-mg_get_option(const struct mg_context *ctx, const char *option_name)
-{
-	const struct mg_option	*option;
-
-	if ((option = find_opt(option_name)) != NULL)
-		return (ctx->options[option->index]);
-	else
-		return (NULL);
-}
-
-void
-mg_set_callback(struct mg_context *ctx, enum mg_event_t event, mg_callback_t cb)
-{
-	/* No locking, no sanity checking. Suppose this is fine? */
-	ctx->callbacks[event] = cb;
-}
-
-#if 0
-static void
-admin_page(struct mg_connection *conn, const struct mg_request_info *ri,
-			   void *user_data)
-{
-	const struct mg_option	*option;
-	const char		*option_name, *option_value;
-
-	user_data = NULL; /* Unused */
-
-	(void) mg_printf(conn,
-	"HTTP/1.1 200 OK\r\n"
-			"Content-Type: text/html\r\n\r\n"
-			"<html><body><h1>Mongoose v. %s</h1>", mg_version());
-
-	if (!strcmp(ri->request_method, "POST")) {
-		option_name = mg_get_var(conn, "o");
-		option_value = mg_get_var(conn, "v");
-		if (mg_set_option(conn->ctx,
-		    option_name, option_value) == -1) {
-			(void) mg_printf(conn,
-			    "<p style=\"background: red\">Error setting "
-			    "option \"%s\"</p>",
-			    option_name ? option_name : "(null)");
-		} else {
-			(void) mg_printf(conn,
-			    "<p style=\"color: green\">Saved: %s=%s</p>",
-			    option_name, option_value ? option_value : "NULL");
-		}
-	}
-
-	/* Print table with all options */
-	(void) mg_printf(conn, "%s", "<table border=\"1\""
-			"<tr><th>Option</th><th>Description</th>"
-					"<th colspan=2>Value</th></tr>");
-
-	for (option = known_options; option->name != NULL; option++) {
-		option_value = mg_get_option(conn->ctx, option->name);
-		if (option_value == NULL)
-			option_value = "";
-		(void) mg_printf(conn,
-		    "<form method=post><tr><td>%s</td><td>%s</td>"
-		    "<input type=hidden name=o value='%s'>"
-		    "<td><input type=text name=v value='%s'></td>"
-		    "<td><input type=submit value=save></td></form></tr>",
-		    option->name, option->description,
-		    option->name, option_value);
-	}
-
-	(void) mg_printf(conn, "%s", "</table></body></html>");
-}
-#endif
 
 static void
 reset_per_request_attributes(struct mg_connection *conn)
@@ -4130,8 +3945,10 @@ close_connection(struct mg_connection *conn)
 {
 	reset_per_request_attributes(conn);
 
-	if (conn->ssl)
+	if (conn->ssl) {
 		SSL_free(conn->ssl);
+		conn->ssl = NULL;
+	}
 
 	if (conn->client.sock != INVALID_SOCKET)
 		close_socket_gracefully(conn, conn->client.sock);
@@ -4202,7 +4019,7 @@ process_new_connection(struct mg_connection *conn)
 			ri->post_data = buf + request_len;
 			ri->post_data_len = nread - request_len;
 			conn->birth_time = time(NULL);
-			analyze_request(conn);
+			handle_request(conn);
 			log_access(conn);
 			shift_to_next(conn, buf, request_len, &nread);
 		}
@@ -4230,7 +4047,7 @@ get_socket(struct mg_context *ctx, struct socket *sp)
 	ctx->num_idle++;
 	while (ctx->sq_head == ctx->sq_tail) {
 		ts.tv_nsec = 0;
-		ts.tv_sec = time(NULL) + atoi(ctx->options[OPT_IDLE_TIME]) + 1;
+		ts.tv_sec = time(NULL) + 10;
 		if (pthread_cond_timedwait(&ctx->empty_cond,
 		    &ctx->mutex, &ts) != 0) {
 			/* Timeout! release the mutex and return */
@@ -4287,15 +4104,16 @@ worker_thread(struct mg_context *ctx)
 		    &conn.client.rsa.u.sin.sin_addr.s_addr, 4);
 		conn.request_info.remote_ip =
 		    ntohl(conn.request_info.remote_ip);
+		conn.request_info.is_ssl = conn.client.is_ssl;
 
 		if (conn.client.is_ssl &&
 		    (conn.ssl = SSL_new(conn.ctx->ssl_ctx)) == NULL) {
-			cry(&conn, "%s: SSL_new: %d", __func__, ERRNO);
+			ssl_cry(&conn, "%s: SSL_new: %d", __func__, ERRNO);
 		} else if (conn.client.is_ssl &&
 		    SSL_set_fd(conn.ssl, conn.client.sock) != 1) {
-			cry(&conn, "%s: SSL_set_fd: %d", __func__, ERRNO);
+			ssl_cry(&conn, "%s: SSL_set_fd: %d", __func__, ERRNO);
 		} else if (conn.client.is_ssl && SSL_accept(conn.ssl) != 1) {
-			cry(&conn, "%s: SSL handshake error", __func__);
+			ssl_cry(&conn, "%s: SSL handshake error", __func__);
 		} else {
 			process_new_connection(&conn);
 		}
@@ -4336,7 +4154,7 @@ put_socket(struct mg_context *ctx, const struct socket *sp)
 
 	/* If there are no idle threads, start one */
 	if (ctx->num_idle == 0 &&
-	    ctx->num_threads < atoi(ctx->options[OPT_MAX_THREADS])) {
+	    ctx->num_threads < atoi(ctx->config->num_threads)) {
 		if (start_thread(ctx,
 		    (mg_thread_func_t) worker_thread, ctx) != 0)
 			cry(fc(ctx), "Cannot start thread: %d", ERRNO);
@@ -4360,10 +4178,7 @@ accept_new_connection(const struct socket *listener, struct mg_context *ctx)
 	    &accepted.rsa.u.sa, &accepted.rsa.len)) == INVALID_SOCKET)
 		return;
 
-	(void) pthread_rwlock_rdlock(&ctx->rwlock);
-	allowed = ctx->options[OPT_ACL] == NULL ||
-	    check_acl(ctx, ctx->options[OPT_ACL], &accepted.rsa) == TRUE;
-	(void) pthread_rwlock_unlock(&ctx->rwlock);
+	allowed = check_acl(ctx, &accepted.rsa) == MG_SUCCESS;
 
 	if (allowed) {
 		/* Put accepted socket structure into the queue */
@@ -4383,17 +4198,16 @@ master_thread(struct mg_context *ctx)
 {
 	fd_set		read_set;
 	struct timeval	tv;
-	int		i, max_fd;
+	struct socket	*sp;
+	int		max_fd;
 
 	while (ctx->stop_flag == 0) {
 		FD_ZERO(&read_set);
 		max_fd = -1;
 
 		/* Add listening sockets to the read set */
-		(void) pthread_rwlock_rdlock(&ctx->rwlock);
-		for (i = 0; i < ctx->num_listeners; i++)
-			add_to_set(ctx->listeners[i].sock, &read_set, &max_fd);
-		(void) pthread_rwlock_unlock(&ctx->rwlock);
+		for (sp = ctx->listening_sockets; sp != NULL; sp = sp->next)
+			add_to_set(sp->sock, &read_set, &max_fd);
 
 		tv.tv_sec = 1;
 		tv.tv_usec = 0;
@@ -4409,17 +4223,33 @@ master_thread(struct mg_context *ctx)
 			sleep(1);
 #endif /* _WIN32 */
 		} else {
-			(void) pthread_rwlock_rdlock(&ctx->rwlock);
-			for (i = 0; i < ctx->num_listeners; i++)
-				if (FD_ISSET(ctx->listeners[i].sock, &read_set))
-					accept_new_connection(
-					    ctx->listeners + i, ctx);
-			(void) pthread_rwlock_unlock(&ctx->rwlock);
+			for (sp = ctx->listening_sockets;
+					sp != NULL; sp = sp->next)
+				if (FD_ISSET(sp->sock, &read_set))
+					accept_new_connection(sp, ctx);
 		}
 	}
 
 	/* Stop signal received: somebody called mg_stop. Quit. */
-	mg_fini(ctx);
+	close_all_listening_sockets(ctx);
+
+	/* Wait until all threads finish */
+	(void) pthread_mutex_lock(&ctx->mutex);
+	while (ctx->num_threads > 0)
+		(void) pthread_cond_wait(&ctx->thr_cond, &ctx->mutex);
+	(void) pthread_mutex_unlock(&ctx->mutex);
+
+	/* Deallocate SSL context */
+	if (ctx->ssl_ctx != NULL)
+		SSL_CTX_free(ctx->ssl_ctx);
+
+	(void) pthread_mutex_destroy(&ctx->mutex);
+	(void) pthread_cond_destroy(&ctx->thr_cond);
+	(void) pthread_cond_destroy(&ctx->empty_cond);
+	(void) pthread_cond_destroy(&ctx->full_cond);
+
+	/* Signal mg_stop() that we're done */
+	ctx->stop_flag = 2;
 }
 
 void
@@ -4440,38 +4270,48 @@ mg_stop(struct mg_context *ctx)
 }
 
 struct mg_context *
-mg_start(void)
+mg_start(struct mg_config *config)
 {
-	struct mg_context	*ctx;
-	const struct mg_option	*option;
+	struct mg_context	*ctx, fake_ctx;
 
 #if defined(_WIN32)
 	WSADATA data;
 	WSAStartup(MAKEWORD(2,2), &data);
 #endif /* _WIN32 */
 
-	if ((ctx = (struct mg_context *) calloc(1, sizeof(*ctx))) == NULL) {
-		cry(fc(ctx), "cannot allocate mongoose context");
+	fake_ctx.config = config;
+	
+	if (config->listening_ports == NULL ||
+	    config->num_threads == NULL ||
+	    config->auth_domain == NULL) {
+		cry(fc(&fake_ctx), "Please specify "
+		    "num_threads, listening_ports, auth_domain");
+		return (NULL);
+        } else if (config->document_root != NULL &&
+	    verify_document_root(&fake_ctx, config->document_root) != TRUE) {
+		cry(fc(&fake_ctx), "Invalid root directory: \"%s\"",
+		    config->document_root);
+		return (NULL);
+	} else if ((ctx = calloc(1, sizeof(*ctx))) == NULL) {
+		cry(fc(&fake_ctx), "Cannot allocate mongoose context");
 		return (NULL);
 	}
+	ctx->config = config;
 
-	/* Initialize options. First pass: set default option values */
-	for (option = known_options; option->name != NULL; option++)
-		ctx->options[option->index] = option->default_value == NULL ?
-			NULL : mg_strdup(option->default_value);
-
-	/* Call setter functions */
-	for (option = known_options; option->name != NULL; option++)
-		if (option->setter != NULL &&
-		    ctx->options[option->index] != NULL)
-			if (option->setter(ctx,
-			    ctx->options[option->index]) == FALSE) {
-				mg_fini(ctx);
-				return (NULL);
-			}
-
-	DEBUG_TRACE((DEBUG_MGS_PREFIX "%s: root [%s]",
-	    __func__, ctx->options[OPT_ROOT]));
+	/*
+	 * NOTE(lsm): order is important here. SSL certificates must
+	 * be initialized before listening ports.
+	 */
+	if (set_ssl_option(ctx) == MG_ERROR ||
+	    set_ports_option(ctx) == MG_ERROR ||
+	    set_gpass_option(ctx) == MG_ERROR ||
+#if !defined(_WIN32)
+	    set_uid_option(ctx) == MG_ERROR ||
+#endif
+	    set_acl_option(ctx) == MG_ERROR) {
+		free(ctx);
+		return (NULL);
+	}
 
 #if !defined(_WIN32)
 	/*
@@ -4479,9 +4319,8 @@ mg_start(void)
 	 * won't kill the whole process.
 	 */
 	(void) signal(SIGPIPE, SIG_IGN);
-#endif /* _WIN32 */
+#endif /* !_WIN32 */
 
-	(void) pthread_rwlock_init(&ctx->rwlock, NULL);
 	(void) pthread_mutex_init(&ctx->mutex, NULL);
 	(void) pthread_cond_init(&ctx->thr_cond, NULL);
 	(void) pthread_cond_init(&ctx->empty_cond, NULL);
