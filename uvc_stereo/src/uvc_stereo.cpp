@@ -57,6 +57,8 @@ class UVCStereo {
       pnode.getParam("width", width);
       pnode.getParam("height", height);
 
+      pnode.getParam("frame_id", frame);
+
       left_pub = it.advertise("left/image_raw", 1);
       right_pub = it.advertise("right/image_raw", 1);
 
