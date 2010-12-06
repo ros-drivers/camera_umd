@@ -1,0 +1,14 @@
+<launch>
+  <node pkg="nodelet" type="nodelet" name="camera_process" args="manager" output="screen"/>
+
+  <node pkg="nodelet" type="nodelet" name="uvc_camera_stereo" args="load uvc_camera/Stereo /camera_process" output="screen">
+    <param name="width" type="int" value="320" />
+    <param name="height" type="int" value="240" />
+    <param name="fps" type="int" value="30" />
+    <param name="frame" type="string" value="wide_stereo" />
+    <param name="left/device" type="string" value="/dev/video0" />
+    <param name="right/device" type="string" value="/dev/video1" />
+    <param name="left/camera_info_url" type="string" value="file://$(find uvc_camera)/example-left.yaml" />
+    <param name="right/camera_info_url" type="string" value="file://$(find uvc_camera)/example-right.yaml" />
+  </node>
+</launch>

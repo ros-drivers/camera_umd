@@ -1,0 +1,12 @@
+<library path="lib/libnodelet_uvc_camera">
+  <class name="uvc_camera/Camera" type="uvc_camera::Camera" base_class_type="nodelet::Nodelet">
+    <description>
+      A node that controls and publishes a single UVC camera.
+    </description>
+  </class>
+  <class name="uvc_camera/Stereo" type="uvc_camera::Stereo" base_class_type="nodelet::Nodelet">
+    <description>
+      A node that controls and publishes two roughly-synchronized UVC cameras.
+    </description>
+  </class>
+</library>
