@@ -3,9 +3,6 @@
 #include <ros/ros.h>
 #include <ros/time.h>
 
-#include <pluginlib/class_list_macros.h>
-#include <nodelet/nodelet.h>
-
 #include "uvc_cam/uvc_cam.h"
 #include "sensor_msgs/Image.h"
 #include "sensor_msgs/image_encodings.h"
@@ -13,19 +10,15 @@
 #include "camera_info_manager/camera_info_manager.h"
 #include "image_transport/image_transport.h"
 
+#include "uvc_camera/camera.h"
+
 using namespace sensor_msgs;
 
 namespace uvc_camera {
 
-class Camera : public nodelet::Nodelet {
-  public:
-    Camera() {}
-
-    void onInit() {
-      /* make local copies of the node references */
-      node = getNodeHandle();
-      pnode = getPrivateNodeHandle();
-      it = new image_transport::ImageTransport(node);
+Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
+      node(_comm_nh), pnode(_param_nh), it(_comm_nh),
+      info_mgr(_comm_nh, "camera"), cam(0) {
 
       /* default config values */
       width = 640;
@@ -38,13 +31,11 @@ class Camera : public nodelet::Nodelet {
       rotate = false;
 
       /* set up information manager */
-      info_mgr = new CameraInfoManager(node, "camera");
-
       std::string url;
 
       pnode.getParam("camera_info_url", url);
 
-      info_mgr->loadCameraInfo(url);
+      info_mgr.loadCameraInfo(url);
 
       /* pull other configuration */
       pnode.getParam("device", device);
@@ -58,7 +49,7 @@ class Camera : public nodelet::Nodelet {
       pnode.getParam("frame_id", frame);
 
       /* advertise image streams and info streams */
-      pub = it->advertise("image_raw", 1);
+      pub = it.advertise("image_raw", 1);
 
       info_pub = node.advertise<CameraInfo>("camera_info", 1);
 
@@ -71,8 +62,8 @@ class Camera : public nodelet::Nodelet {
       image_thread = boost::thread(boost::bind(&Camera::feedImages, this));
     }
 
-    void sendInfo(ros::Time time) {
-      CameraInfoPtr info(new CameraInfo(info_mgr->getCameraInfo()));
+    void Camera::sendInfo(ros::Time time) {
+      CameraInfoPtr info(new CameraInfo(info_mgr.getCameraInfo()));
 
       info->header.stamp = time;
       info->header.frame_id = frame;
@@ -80,7 +71,7 @@ class Camera : public nodelet::Nodelet {
       info_pub.publish(info);
     }
 
-    void feedImages() {
+    void Camera::feedImages() {
       unsigned int pair_id = 0;
       while (ok) {
         unsigned char *img_frame = NULL;
@@ -128,43 +119,12 @@ class Camera : public nodelet::Nodelet {
       }
     }
 
-    ~Camera() {
+    Camera::~Camera() {
       ok = false;
       image_thread.join();
-      if (it) delete it;
       if (cam) delete cam;
     }
 
-  private:
-    ros::NodeHandle node, pnode;
-    image_transport::ImageTransport *it;
-    bool ok;
-
-    uvc_cam::Cam *cam;
-    int width, height, fps, skip_frames, frames_to_skip;
-    std::string device, frame;
-    bool rotate;
-
-    CameraInfoManager *info_mgr;
-
-    image_transport::Publisher pub;
-    ros::Publisher info_pub;
-
-    boost::thread image_thread;
-};
-
-PLUGINLIB_DECLARE_CLASS(uvc_camera, Camera, uvc_camera::Camera, nodelet::Nodelet);
 
 };
 
-/*
-int main (int argc, char **argv) {
-  ros::init(argc, argv, "uvc_stereo");
-
-  Stereo uvc_node(argc, argv);
-
-  boost::thread image_thread(boost::bind(&Stereo::feedImages, &uvc_node));
-
-  ros::spin();
-}
-*/

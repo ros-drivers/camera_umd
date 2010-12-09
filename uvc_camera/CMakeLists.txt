@@ -21,6 +21,10 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 #uncomment if you have defined services
 #rosbuild_gensrv()
 
+rosbuild_find_ros_package(dynamic_reconfigure)
+include(${dynamic_reconfigure_PACKAGE_PATH}/cmake/cfgbuild.cmake)
+gencfg()
+
 #common commands for building c++ executables and libraries
 #rosbuild_add_library(${PROJECT_NAME} src/example.cpp)
 #target_link_libraries(${PROJECT_NAME} another_library)
@@ -30,5 +34,8 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 #target_link_libraries(example ${PROJECT_NAME})
 
 #rosbuild_add_executable(uvc_stereo src/uvc_stereo.cpp src/uvc_cam.cpp)
-rosbuild_add_library(nodelet_uvc_camera src/camera.cpp src/stereo.cpp src/uvc_cam.cpp)
+rosbuild_add_library(nodelet_uvc_camera src/nodelets.cpp src/camera.cpp src/stereo.cpp src/uvc_cam.cpp)
+
+rosbuild_add_executable(camera_node src/camera_node.cpp src/camera.cpp src/uvc_cam.cpp)
+rosbuild_add_executable(stereo_node src/stereo_node.cpp src/stereo.cpp src/uvc_cam.cpp)
 
