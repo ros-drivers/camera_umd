@@ -10,7 +10,7 @@ class Camera {
   public:
     Camera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh);
     void onInit();
-    void sendInfo(ros::Time time);
+    void sendInfo(sensor_msgs::ImagePtr &image, ros::Time time);
     void feedImages();
     ~Camera();
 

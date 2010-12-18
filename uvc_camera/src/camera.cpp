@@ -62,8 +62,21 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       image_thread = boost::thread(boost::bind(&Camera::feedImages, this));
     }
 
-    void Camera::sendInfo(ros::Time time) {
+    void Camera::sendInfo(ImagePtr &image, ros::Time time) {
       CameraInfoPtr info(new CameraInfo(info_mgr.getCameraInfo()));
+
+      /* Throw out any CamInfo that's not calibrated to this camera mode */
+      if (info->K[0] != 0.0 &&
+           (image->width != info->width
+              || image->height != info->height)) {
+        info.reset(new CameraInfo());
+      }
+
+      /* If we don't have a calibration, set the image dimensions */
+      if (info->K[0] == 0.0) {
+        info->width = image->width;
+        info->height = image->height;
+      }
 
       info->header.stamp = time;
       info->header.frame_id = frame;
@@ -105,7 +118,7 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
 
              pub.publish(image);
 
-             sendInfo(capture_time);
+             sendInfo(image, capture_time);
 
              ++pair_id;
           }
