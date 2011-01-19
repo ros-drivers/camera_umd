@@ -459,7 +459,6 @@ struct mg_connection {
   int buf_size;               // Buffer size
   int request_len;            // Size of the request + headers in a buffer
   int data_len;               // Total size of data in a buffer
-  char *auth_header;          // Buffer for the Authorization header (request_info.ah points into it).
 };
 
 const char **mg_get_valid_option_names(void) {
@@ -2015,32 +2014,31 @@ void mg_md5(char *buf, ...) {
 }
 
 // Check the user's password, return 1 if OK
-static int check_password(struct mg_connection *conn) {
+static int check_password(const char *method, const char *ha1, const char *uri,
+                          const char *nonce, const char *nc, const char *cnonce,
+                          const char *qop, const char *response) {
   char ha2[32 + 1], expected_response[32 + 1];
-  struct mg_auth_header *ah = conn->request_info.ah;
 
   // Some of the parameters may be NULL
-  if (conn->request_info.request_method == NULL || ah == NULL ||
-      ah->nonce == NULL || ah->nc == NULL ||
-      ah->cnonce == NULL || ah->qop == NULL || ah->uri == NULL ||
-      ah->response == NULL) {
+  if (method == NULL || nonce == NULL || nc == NULL || cnonce == NULL ||
+      qop == NULL || response == NULL) {
     return 0;
   }
 
   // NOTE(lsm): due to a bug in MSIE, we do not compare the URI
   // TODO(lsm): check for authentication timeout
-  if (// strcmp(ah->uri, conn->request_info.uri) != 0 ||
-      strlen(ah->response) != 32
-      // || now - strtoul(ah->nonce, NULL, 10) > 3600
+  if (// strcmp(dig->uri, c->ouri) != 0 ||
+      strlen(response) != 32
+      // || now - strtoul(dig->nonce, NULL, 10) > 3600
       ) {
     return 0;
   }
 
-  mg_md5(ha2, conn->request_info.request_method, ":", ah->uri, NULL);
-  mg_md5(expected_response, ah->ha1, ":", ah->nonce, ":", ah->nc,
-      ":", ah->cnonce, ":", ah->qop, ":", ha2, NULL);
+  mg_md5(ha2, method, ":", uri, NULL);
+  mg_md5(expected_response, ha1, ":", nonce, ":", nc,
+      ":", cnonce, ":", qop, ":", ha2, NULL);
 
-  return mg_strcasecmp(ah->response, expected_response) == 0;
+  return mg_strcasecmp(response, expected_response) == 0;
 }
 
 // Use the global passwords file, if specified by auth_gpass option,
@@ -2075,20 +2073,26 @@ static FILE *open_auth_file(struct mg_connection *conn, const char *path) {
   return fp;
 }
 
-static void parse_auth_header(struct mg_connection *conn) {
+// Parsed Authorization header
+struct ah {
+  char *user, *uri, *cnonce, *response, *qop, *nc, *nonce;
+};
+
+static int parse_auth_header(struct mg_connection *conn, char *buf,
+                             size_t buf_size, struct ah *ah) {
   char *name, *value, *s;
   const char *auth_header;
 
   if ((auth_header = mg_get_header(conn, "Authorization")) == NULL ||
       mg_strncasecmp(auth_header, "Digest ", 7) != 0) {
-    return;
+    return 0;
   }
 
   // Make modifiable copy of the auth header
-  conn->auth_header = mg_strdup(auth_header + 7);
-  s = conn->auth_header;
+  (void) mg_strlcpy(buf, auth_header + 7, buf_size);
 
-  conn->request_info.ah = calloc(1, sizeof(struct mg_auth_header));
+  s = buf;
+  (void) memset(ah, 0, sizeof(*ah));
 
   // Parse authorization header
   for (;;) {
@@ -2114,40 +2118,40 @@ static void parse_auth_header(struct mg_connection *conn) {
     }
 
     if (!strcmp(name, "username")) {
-      conn->request_info.ah->user = value;
+      ah->user = value;
     } else if (!strcmp(name, "cnonce")) {
-      conn->request_info.ah->cnonce = value;
+      ah->cnonce = value;
     } else if (!strcmp(name, "response")) {
-      conn->request_info.ah->response = value;
+      ah->response = value;
     } else if (!strcmp(name, "uri")) {
-      conn->request_info.ah->uri = value;
+      ah->uri = value;
     } else if (!strcmp(name, "qop")) {
-      conn->request_info.ah->qop = value;
+      ah->qop = value;
     } else if (!strcmp(name, "nc")) {
-      conn->request_info.ah->nc = value;
+      ah->nc = value;
     } else if (!strcmp(name, "nonce")) {
-      conn->request_info.ah->nonce = value;
+      ah->nonce = value;
     }
   }
 
   // CGI needs it as REMOTE_USER
-  if (conn->request_info.ah->user != NULL) {
-    conn->request_info.remote_user = mg_strdup(conn->request_info.ah->user);
+  if (ah->user != NULL) {
+    conn->request_info.remote_user = mg_strdup(ah->user);
   } else {
-    // Can't be valid; clean up
-    free(conn->request_info.ah);
-    conn->request_info.ah = NULL;
-    free(conn->auth_header);
-    conn->auth_header = NULL;
+    return 0;
   }
+
+  return 1;
 }
 
 // Authorize against the opened passwords file. Return 1 if authorized.
-static int authorize_from_file(struct mg_connection *conn, FILE *fp) {
-  char line[256], f_user[256], ha1[256], f_domain[256];
+static int authorize(struct mg_connection *conn, FILE *fp) {
+  struct ah ah;
+  char line[256], f_user[256], ha1[256], f_domain[256], buf[BUFSIZ];
 
-  if (conn->request_info.ah == NULL)
+  if (!parse_auth_header(conn, buf, sizeof(buf), &ah)) {
     return 0;
+  }
 
   // Loop over passwords file
   while (fgets(line, sizeof(line), fp) != NULL) {
@@ -2155,11 +2159,12 @@ static int authorize_from_file(struct mg_connection *conn, FILE *fp) {
       continue;
     }
 
-    if (!strcmp(conn->request_info.ah->user, f_user) &&
-        !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain)) {
-      conn->request_info.ah->ha1 = mg_strdup(ha1);
-      return check_password(conn);
-    }
+    if (!strcmp(ah.user, f_user) &&
+        !strcmp(conn->ctx->config[AUTHENTICATION_DOMAIN], f_domain))
+      return check_password(
+            conn->request_info.request_method,
+            ha1, ah.uri, ah.nonce, ah.nc, ah.cnonce, ah.qop,
+            ah.response);
   }
 
   return 0;
@@ -2172,12 +2177,6 @@ static int check_authorization(struct mg_connection *conn, const char *path) {
   struct vec uri_vec, filename_vec;
   const char *list;
   int authorized;
-
-  /* Check for embedded authentication first */
-  if (conn->request_info.ah != NULL &&
-      conn->request_info.ah->ha1 != NULL) {
-    return check_password(conn);
-  }
 
   fp = NULL;
   authorized = 1;
@@ -2199,38 +2198,32 @@ static int check_authorization(struct mg_connection *conn, const char *path) {
   }
 
   if (fp != NULL) {
-    authorized = authorize_from_file(conn, fp);
+    authorized = authorize(conn, fp);
     (void) fclose(fp);
   }
 
   return authorized;
 }
 
-void mg_send_authorization_request(struct mg_connection *conn, const char *nonce) {
+static void send_authorization_request(struct mg_connection *conn) {
   conn->request_info.status_code = 401;
   (void) mg_printf(conn,
       "HTTP/1.1 401 Unauthorized\r\n"
       "WWW-Authenticate: Digest qop=\"auth\", "
-      "realm=\"%s\", nonce=\"",
-      conn->ctx->config[AUTHENTICATION_DOMAIN]);
-  if (nonce == NULL)
-    (void) mg_printf(conn, "%lu", (unsigned long) time(NULL));
-  else
-    (void) mg_printf(conn, "%s", nonce);
-  (void) mg_printf(conn, "\"\r\n\r\n");
+      "realm=\"%s\", nonce=\"%lu\"\r\n\r\n",
+      conn->ctx->config[AUTHENTICATION_DOMAIN],
+      (unsigned long) time(NULL));
 }
 
 static int is_authorized_for_put(struct mg_connection *conn) {
   FILE *fp;
   int ret = 0;
 
-  /* No need to check for embedded authentication here: we already passed
-   * check_authorization() */
   fp = conn->ctx->config[PUT_DELETE_PASSWORDS_FILE] == NULL ? NULL :
     mg_fopen(conn->ctx->config[PUT_DELETE_PASSWORDS_FILE], "r");
 
   if (fp != NULL) {
-    ret = authorize_from_file(conn, fp);
+    ret = authorize(conn, fp);
     (void) fclose(fp);
   }
 
@@ -3238,13 +3231,8 @@ static void handle_request(struct mg_connection *conn) {
   convert_uri_to_file_name(conn, ri->uri, path, sizeof(path));
 
   DEBUG_TRACE(("%s", ri->uri));
-
-  parse_auth_header(conn);
-
-  if (call_user(conn, MG_AUTHENTICATE) != NULL) {
-    // Do nothing, callback has served the request
-  } else if (!check_authorization(conn, path)) {
-    mg_send_authorization_request(conn, NULL);
+  if (!check_authorization(conn, path)) {
+    send_authorization_request(conn);
   } else if (call_user(conn, MG_NEW_REQUEST) != NULL) {
     // Do nothing, callback has served the request
   } else if (strstr(path, PASSWORDS_FILE_NAME)) {
@@ -3256,7 +3244,7 @@ static void handle_request(struct mg_connection *conn) {
         !strcmp(ri->request_method, "DELETE")) &&
       (conn->ctx->config[PUT_DELETE_PASSWORDS_FILE] == NULL ||
        !is_authorized_for_put(conn))) {
-    mg_send_authorization_request(conn, NULL);
+    send_authorization_request(conn);
   } else if (!strcmp(ri->request_method, "PUT")) {
     put_file(conn, path);
   } else if (!strcmp(ri->request_method, "DELETE")) {
@@ -3643,7 +3631,6 @@ static int set_gpass_option(struct mg_context *ctx) {
 
 static int set_acl_option(struct mg_context *ctx) {
   struct usa fake;
-  memset(&fake, 0, sizeof(fake));
   return check_acl(ctx, &fake) != -1;
 }
 
@@ -3654,24 +3641,10 @@ static void reset_per_request_attributes(struct mg_connection *conn) {
   if (ri->remote_user != NULL) {
     free((void *) ri->remote_user);
   }
-  if (ri->ah != NULL) {
-    if (ri->ah->ha1 != NULL) {
-      free((void *) ri->ah->ha1);
-    }
-    if (ri->ah->expected_response != NULL) {
-      free((void *) ri->ah->expected_response);
-    }
-    free((void *) ri->ah);
-  }
   ri->remote_user = ri->request_method = ri->uri = ri->http_version = NULL;
-  ri->ah = NULL;
   ri->num_headers = 0;
   ri->status_code = -1;
 
-  if (conn->auth_header != NULL) {
-    free((void *) conn->auth_header);
-  }
-  conn->auth_header = NULL;
   conn->num_bytes_sent = conn->consumed_content = 0;
   conn->content_len = -1;
   conn->request_len = conn->data_len = 0;
@@ -3857,7 +3830,6 @@ static void process_new_connection(struct mg_connection *conn) {
     }
     // conn->peer is not NULL only for SSL-ed proxy connections
   } while (conn->peer || (keep_alive_enabled && should_keep_alive(conn)));
-  reset_per_request_attributes(conn);
 }
 
 // Worker threads take accepted socket from the queue
