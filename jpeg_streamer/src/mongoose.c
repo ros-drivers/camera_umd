@@ -391,7 +391,7 @@ enum {
   ENABLE_KEEP_ALIVE, ACCESS_CONTROL_LIST, MAX_REQUEST_SIZE,
   EXTRA_MIME_TYPES, LISTENING_PORTS,
   DOCUMENT_ROOT, SSL_CERTIFICATE, NUM_THREADS, RUN_AS_USER,
-  NUM_OPTIONS
+  MAX_THREADS, NUM_OPTIONS
 };
 
 static const char *config_options[] = {
@@ -417,6 +417,7 @@ static const char *config_options[] = {
   "s", "ssl_certificate", NULL,
   "t", "num_threads", "10",
   "u", "run_as_user", NULL,
+  "T", "max_threads", NULL,
   NULL
 };
 #define ENTRIES_PER_CONFIG_OPTION 3
@@ -431,6 +432,9 @@ struct mg_context {
   struct socket *listening_sockets;
 
   int num_threads;           // Number of threads
+  int idle_threads;          // Number of inactive threads
+  int base_threads;          // Number of threads to maintain when idle
+  int max_threads;           // Limit on number of threads
   pthread_mutex_t mutex;     // Protects (max|num)_threads
   pthread_cond_t  cond;      // Condvar for tracking workers terminations
 
@@ -3764,7 +3768,7 @@ static void handle_proxy_request(struct mg_connection *conn) {
     }
     conn->peer->client.is_ssl = is_ssl;
   }
-  
+
   // Forward client's request to the target
   mg_printf(conn->peer, "%s %s HTTP/%s\r\n", ri->request_method, ri->uri + len,
             ri->http_version);
@@ -3899,7 +3903,23 @@ static void worker_thread(struct mg_context *ctx) {
   conn->buf = (char *) (conn + 1);
   assert(conn != NULL);
 
+  (void) pthread_mutex_lock(&ctx->mutex);
+  ctx->idle_threads++;
+  (void) pthread_mutex_unlock(&ctx->mutex);
+
   while (ctx->stop_flag == 0 && consume_socket(ctx, &conn->client)) {
+    (void) pthread_mutex_lock(&ctx->mutex);
+    ctx->idle_threads--;
+    assert(ctx->idle_threads >= 0);
+    if (ctx->idle_threads == 0 && (ctx->max_threads == 0 || (ctx->num_threads < ctx->max_threads))) {
+      if (start_thread(ctx, (mg_thread_func_t) worker_thread, ctx) != 0) {
+        cry(fc(ctx), "Cannot start extra worker thread: %d", ERRNO);
+      } else {
+        ctx->num_threads++;
+      }
+    }
+    (void) pthread_mutex_unlock(&ctx->mutex);
+
     conn->birth_time = time(NULL);
     conn->ctx = ctx;
 
@@ -3918,14 +3938,24 @@ static void worker_thread(struct mg_context *ctx) {
     }
 
     close_connection(conn);
+
+    (void) pthread_mutex_lock(&ctx->mutex);
+    ctx->idle_threads++;
+    if (ctx->num_threads > ctx->base_threads && ctx->idle_threads > 1) { // todo: add some buffer here
+      (void) pthread_mutex_unlock(&ctx->mutex);
+      break;
+    }
+    (void) pthread_mutex_unlock(&ctx->mutex);
   }
   free(conn);
 
   // Signal master that we're done with connection and exiting
   (void) pthread_mutex_lock(&ctx->mutex);
   ctx->num_threads--;
+  ctx->idle_threads--;
   (void) pthread_cond_signal(&ctx->cond);
   assert(ctx->num_threads >= 0);
+  assert(ctx->idle_threads >= 0);
   (void) pthread_mutex_unlock(&ctx->mutex);
 
   DEBUG_TRACE(("exiting"));
@@ -4113,6 +4143,13 @@ struct mg_context *mg_start(mg_callback_t user_callback, void *user_data,
     }
   }
 
+  if (ctx->config[MAX_THREADS] == NULL) {
+    ctx->config[MAX_THREADS] = ctx->config[NUM_THREADS];
+  }
+
+  ctx->base_threads = atoi(ctx->config[NUM_THREADS]);
+  ctx->max_threads = atoi(ctx->config[MAX_THREADS]);
+
   // NOTE(lsm): order is important here. SSL certificates must
   // be initialized before listening ports. UID must be set last.
   if (!set_gpass_option(ctx) ||
@@ -4143,7 +4180,7 @@ struct mg_context *mg_start(mg_callback_t user_callback, void *user_data,
   start_thread(ctx, (mg_thread_func_t) master_thread, ctx);
 
   // Start worker threads
-  for (i = 0; i < atoi(ctx->config[NUM_THREADS]); i++) {
+  for (i = 0; i < ctx->base_threads; i++) {
     if (start_thread(ctx, (mg_thread_func_t) worker_thread, ctx) != 0) {
       cry(fc(ctx), "Cannot start worker thread: %d", ERRNO);
     } else {

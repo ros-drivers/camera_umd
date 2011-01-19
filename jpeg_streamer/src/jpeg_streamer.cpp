@@ -42,19 +42,22 @@ void *new_req_callback(enum mg_event event, struct mg_connection *con, const str
 
 JPEGStreamer::JPEGStreamer() {
   string topic = node.resolveName("image");
-  int port, start_threads;
+  int port, start_threads, max_threads;
   ros::NodeHandle("~").param("port", port, 8080);
   ros::NodeHandle("~").param("skip", skip, 0);
   ros::NodeHandle("~").param("start_threads", start_threads, 1);
+  ros::NodeHandle("~").param("max_threads", max_threads, 16);
   skipped = 0;
 
-  std::stringstream port_ss, threads_ss;
+  std::stringstream port_ss, num_threads_ss, max_threads_ss;
   port_ss << port;
-  threads_ss << start_threads;
+  num_threads_ss << start_threads;
+  max_threads_ss << max_threads;
 
   const char *mg_options[] = {
     "listening_ports", strdup(port_ss.str().c_str()),
-    "num_threads", strdup(threads_ss.str().c_str()),
+    "num_threads", strdup(num_threads_ss.str().c_str()),
+    "max_threads", strdup(max_threads_ss.str().c_str()),
     "authentication_domain", ".",
     NULL
   };
