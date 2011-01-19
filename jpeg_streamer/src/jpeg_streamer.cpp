@@ -20,7 +20,6 @@ class JPEGStreamer {
     ros::NodeHandle node;
     ros::Subscriber image_sub;
     mg_context *web_context;
-    mg_config web_config;
     boost::mutex con_mutex;
     boost::mutex data_mutex;
     list<boost::tuple<struct mg_connection*, boost::condition_variable*, boost::mutex*> > connections;
@@ -32,33 +31,33 @@ class JPEGStreamer {
 
 static JPEGStreamer *g_status_video;
 
-mg_error_t new_req_callback(struct mg_connection *con, const struct mg_request_info *req) {
+void *new_req_callback(enum mg_event event, struct mg_connection *con, const struct mg_request_info *req) {
   boost::condition_variable cond;
   boost::mutex single_mutex;
   boost::unique_lock<boost::mutex> lock(single_mutex);
   g_status_video->add_connection(con, &cond, &single_mutex);
   cond.wait(lock);
-  return MG_SUCCESS;
+  return (void*) 1;
 }
 
 JPEGStreamer::JPEGStreamer() {
   string topic = node.resolveName("image");
-  int port, max_clients;
+  int port, start_threads;
   ros::NodeHandle("~").param("port", port, 8080);
   ros::NodeHandle("~").param("skip", skip, 0);
-  ros::NodeHandle("~").param("max_clients", max_clients, 32);
+  ros::NodeHandle("~").param("start_threads", start_threads, 32);
   skipped = 0;
-  
+
   std::stringstream port_ss, threads_ss;
   port_ss << port;
-  threads_ss << max_clients;
+  threads_ss << start_threads;
 
-  memset(&web_config, 0, sizeof(web_config));
-
-  web_config.listening_ports = strdup(port_ss.str().c_str());
-  web_config.new_request_handler = &new_req_callback;
-  web_config.num_threads = strdup(threads_ss.str().c_str());
-  web_config.auth_domain = strdup(".");
+  const char *mg_options[] = {
+    "listening_ports", strdup(port_ss.str().c_str()),
+    "num_threads", strdup(threads_ss.str().c_str()),
+    "authentication_domain", ".",
+    NULL
+  };
 
   image_sub = node.subscribe<sensor_msgs::CompressedImage>(topic, 1,
     boost::bind(&JPEGStreamer::image_callback, this, _1)
@@ -66,7 +65,7 @@ JPEGStreamer::JPEGStreamer() {
 
   g_status_video = this;
 
-  web_context = mg_start(&web_config);
+  web_context = mg_start(&new_req_callback, NULL, mg_options);
 }
 
 static char header_text[] = "HTTP/1.0 200 OK\r\nConnection: Close\r\n"
