@@ -45,7 +45,7 @@ JPEGStreamer::JPEGStreamer() {
   int port, start_threads;
   ros::NodeHandle("~").param("port", port, 8080);
   ros::NodeHandle("~").param("skip", skip, 0);
-  ros::NodeHandle("~").param("start_threads", start_threads, 32);
+  ros::NodeHandle("~").param("start_threads", start_threads, 1);
   skipped = 0;
 
   std::stringstream port_ss, threads_ss;
