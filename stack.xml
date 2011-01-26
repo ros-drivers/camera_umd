@@ -1,6 +1,6 @@
 <stack>
   <description brief="Software for USB cameras, stereo, streaming">
-    Camera-/image-related software for USB cameras, stereo, streaming, ...
+    Software for USB cameras, stereo, streaming
   </description>
   <author>Ken Tossell/ktossell@umd.edu</author>
   <license>GPL,BSD</license>  
