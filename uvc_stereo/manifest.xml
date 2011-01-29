@@ -1,8 +1,8 @@
 <package>
   <description brief="uvc_stereo">
 
-     Stream images from two USB cameras (UVC), assigning equal timestamps to corresponding
-     frames and providing CameraInfo messages to consumers
+    Deprecated. Please use stereo_node or StereoNodelet in
+    package uvc_camera.
 
   </description>
   <author>Ken Tossell/ktossell@umd.edu</author>

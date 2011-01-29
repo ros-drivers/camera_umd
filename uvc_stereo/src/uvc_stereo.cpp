@@ -177,5 +177,8 @@ int main (int argc, char **argv) {
 
   boost::thread image_thread(boost::bind(&UVCStereo::feedImages, &uvc_node));
 
+  ROS_WARN("This package has been replaced. Please use the "
+      "uvc_camera package's stereo_node or StereoNodelet instead.");
+
   ros::spin();
 }
