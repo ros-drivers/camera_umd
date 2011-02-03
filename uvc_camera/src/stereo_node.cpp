@@ -1,26 +1,16 @@
 #include <ros/ros.h>
-#include "uvc_camera/stereocamera.h"
-
-
-namespace uvc_camera {
-
-class StereoNode {
-  public:
-    StereoNode() : stereo(ros::NodeHandle(), ros::NodeHandle("~")) {
-    }
-
-  private:
-    StereoCamera stereo;
-};
-
-};
+#include <nodelet/loader.h>
 
 int main (int argc, char **argv) {
   ros::init(argc, argv, "uvc_camera_stereo");
-  ros::NodeHandle nh;
 
-  uvc_camera::StereoNode sn;
+  nodelet::Loader nodelet;
+  nodelet::M_string remap(ros::names::getRemappings());
+  nodelet::V_string nargv;
+
+  nodelet.load("uvc_camera_stereo", "uvc_camera/StereoNodelet", remap, nargv);
 
   ros::spin();
+  return 0;
 }
 
