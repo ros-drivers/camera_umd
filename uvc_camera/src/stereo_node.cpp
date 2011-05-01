@@ -1,14 +1,12 @@
 #include <ros/ros.h>
 #include <nodelet/loader.h>
 
+#include "uvc_camera/stereocamera.h"
+
 int main (int argc, char **argv) {
   ros::init(argc, argv, "uvc_camera_stereo");
 
-  nodelet::Loader nodelet;
-  nodelet::M_string remap(ros::names::getRemappings());
-  nodelet::V_string nargv;
-
-  nodelet.load("uvc_camera_stereo", "uvc_camera/StereoNodelet", remap, nargv);
+  uvc_camera::StereoCamera stereo(ros::NodeHandle(), ros::NodeHandle("~"));
 
   ros::spin();
   return 0;
