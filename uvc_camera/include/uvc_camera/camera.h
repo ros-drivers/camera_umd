@@ -23,7 +23,7 @@ class Camera {
     std::string device, frame;
     bool rotate;
 
-    CameraInfoManager info_mgr;
+    camera_info_manager::CameraInfoManager info_mgr;
 
     image_transport::Publisher pub;
     ros::Publisher info_pub;

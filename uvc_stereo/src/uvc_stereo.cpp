@@ -163,7 +163,7 @@ class UVCStereo {
     std::string left_device, right_device, frame;
     bool rotate_left, rotate_right;
 
-    CameraInfoManager left_info_mgr, right_info_mgr;
+    camera_info_manager::CameraInfoManager left_info_mgr, right_info_mgr;
 
     image_transport::Publisher left_pub, right_pub;
     ros::Publisher left_info_pub, right_info_pub;
