@@ -28,14 +28,18 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 #common commands for building c++ executables and libraries
 #rosbuild_add_library(${PROJECT_NAME} src/example.cpp)
 #target_link_libraries(${PROJECT_NAME} another_library)
-#rosbuild_add_boost_directories()
+rosbuild_add_boost_directories()
 #rosbuild_link_boost(${PROJECT_NAME} thread)
 #rosbuild_add_executable(example examples/example.cpp)
 #target_link_libraries(example ${PROJECT_NAME})
 
 #rosbuild_add_executable(uvc_stereo src/uvc_stereo.cpp src/uvc_cam.cpp)
 rosbuild_add_library(nodelet_uvc_camera src/nodelets.cpp src/camera.cpp src/stereo.cpp src/uvc_cam.cpp)
+rosbuild_link_boost(nodelet_uvc_camera thread)
 
 rosbuild_add_executable(camera_node src/camera_node.cpp src/camera.cpp src/uvc_cam.cpp)
+rosbuild_link_boost(camera_node thread)
+
 rosbuild_add_executable(stereo_node src/stereo_node.cpp src/stereo.cpp src/uvc_cam.cpp)
+rosbuild_link_boost(stereo_node thread)
 
