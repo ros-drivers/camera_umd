@@ -2,6 +2,6 @@
 Changelog for package jpeg_streamer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.2.0 (2013-08-02)
+------------------
 * Converted jpeg_streamer to catkin
