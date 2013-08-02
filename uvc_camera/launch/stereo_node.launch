@@ -1,5 +1,5 @@
 <launch>
-  <node pkg="uvc_camera" type="stereo_node" name="uvc_camera_stereo">
+  <node pkg="uvc_camera" type="uvc_stereo_node" name="uvc_camera_stereo">
     <param name="width" type="int" value="320" />
     <param name="height" type="int" value="240" />
     <param name="fps" type="int" value="30" />

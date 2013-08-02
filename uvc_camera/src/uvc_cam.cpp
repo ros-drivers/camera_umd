@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <errno.h>
+#include <unistd.h>
 #include "uvc_cam/uvc_cam.h"
 
 using std::string;
