@@ -39,14 +39,21 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
 
       /* pull other configuration */
       pnode.getParam("device", device);
-
       pnode.getParam("fps", fps);
       pnode.getParam("skip_frames", skip_frames);
-
       pnode.getParam("width", width);
       pnode.getParam("height", height);
-
       pnode.getParam("frame_id", frame);
+
+      ros::param::param<int>("brightness", brightness, 128);
+      ros::param::param<int>("contrast", contrast, 128);
+      ros::param::param<int>("wbalance", wbalance, 1);
+      ros::param::param<int>("wbalance_temp", wbalance_temp, 5984);
+      ros::param::param<int>("gain", gain, 200);
+      ros::param::param<int>("sharpness", sharpness, 224);
+      ros::param::param<int>("exposure", exposure, 250);
+      ros::param::param<int>("focus", focus, 1);
+      ros::param::param<int>("saturation", saturation, 32);
 
       /* advertise image streams and info streams */
       pub = it.advertise("image_raw", 1);

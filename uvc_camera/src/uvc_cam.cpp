@@ -15,10 +15,16 @@
 using std::string;
 using namespace uvc_cam;
 
-Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
-: mode(_mode), device(_device),
+
+Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps, 
+  int _brightness, int _contrast, int _wbalance, int _wbalance_temp, int _gain,
+  int _sharpness, int _exposure, int _focus, int _saturation) 
+  : mode(_mode), device(_device),
   motion_threshold_luminance(100), motion_threshold_count(-1),
-  width(_width), height(_height), fps(_fps), rgb_frame(NULL)
+  width(_width), height(_height), fps(_fps), rgb_frame(NULL), 
+  brightness(_brightness), contrast(_contrast), wbalance(_wbalance),
+  wbalance_temp(_wbalance_temp), gain(_gain), sharpness(_sharpness),
+  exposure(_exposure), focus(_focus), saturation(_saturation)
 {
   printf("opening %s\n", _device);
   if ((fd = open(_device, O_RDWR)) == -1)
@@ -169,19 +175,19 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
     //set_control(V4L2_CID_BRIGHTNESS, 140);
     //set_control(V4L2_CID_CONTRAST, 40);
     //set_control(V4L2_CID_WHITE_BALANCE_TEMP_AUTO_OLD, 0);
-    set_control(9963776, 128); //Brightness
-    set_control(9963777, 128); //Contrast
-    set_control(9963788, 1); // White Balance Temperature, Auto
-    set_control(9963802, 5984); // White Balance Temperature
+    set_control(9963776, brightness); //Brightness
+    set_control(9963777, contrast); //Contrast
+    set_control(9963788, wbalance); // White Balance Temperature, Auto
+    set_control(9963802, wbalance_temp); // White Balance Temperature
     set_control(9963800, 2);  // power line frequency to 60 hz
-    set_control(9963795, 200); // Gain
-    set_control(9963803, 224); // Sharpness
+    set_control(9963795, gain); // Gain
+    set_control(9963803, sharpness); // Sharpness
     set_control(9963804, 1); //Backlight Compensation
-    set_control(10094850, 250); // Exposure (Absolute)
-    set_control(168062212, 0); //Focus (absolute)
+    set_control(10094850, exposure); // Exposure (Absolute)
+    set_control(168062212, focus); //Focus (absolute)
     set_control(168062213, 3); //LED1 Mode
     set_control(168062214, 0); //LED1 Frequency
-    set_control(9963778, 32); // Saturation
+    set_control(9963778, saturation); // Saturation
   }
   catch (std::runtime_error &ex)
   {

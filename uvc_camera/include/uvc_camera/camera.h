@@ -19,7 +19,8 @@ class Camera {
     image_transport::ImageTransport it;
     bool ok;
 
-    int width, height, fps, skip_frames, frames_to_skip;
+    int width, height, fps, skip_frames, frames_to_skip, brightness, contrast, wbalance,
+      wbalance_temp, gain, sharpness, exposure, focus, saturation;
     std::string device, frame;
     bool rotate;
 

@@ -55,7 +55,11 @@ class Cam
 public:
   enum mode_t { MODE_RGB, MODE_MJPG, MODE_YUYV } mode;
   Cam(const char *device, mode_t _mode = MODE_RGB,
-      int _width = 640, int _height = 480, int _fps = 30);
+      int _width = 640, int _height = 480, int _fps = 30,  
+      int _brightness = 128, int _contrast = 128, int _wbalance = 1, 
+      int _wbalance_temp = 5984, int _gain = 200,
+      int _sharpness = 224, int _exposure = 250, 
+      int _focus = 1, int _saturation = 32);
   ~Cam();
   static void enumerate();
   int grab(unsigned char **frame, uint32_t &bytes_used);
@@ -66,7 +70,8 @@ public:
 private:
   std::string device;
   int fd, motion_threshold_luminance, motion_threshold_count;
-  unsigned width, height, fps;
+  unsigned width, height, fps, brightness, contrast, wbalance,
+    wbalance_temp, gain, sharpness, exposure, focus, saturation;
   v4l2_format fmt;
   v4l2_capability cap;
   v4l2_streamparm streamparm;
