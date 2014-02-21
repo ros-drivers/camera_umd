@@ -145,8 +145,8 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
       }
 
     }
-    else if (errno != EINVAL)
-      throw std::runtime_error("couldn't query control");
+    // else if (errno != EINVAL)
+    //   throw std::runtime_error("couldn't query control");
     i++;
     if (i == V4L2_CID_LAST_NEW)
       i = V4L2_CID_CAMERA_CLASS_BASE_NEW;
