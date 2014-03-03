@@ -31,10 +31,11 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       rotate = false;
 
       /* set up information manager */
-      std::string url;
-
+      std::string url, camera_name;
       pnode.getParam("camera_info_url", url);
+      pnode.param<std::string>("camera_name", camera_name, "camera");
 
+      info_mgr.setCameraName(camera_name);
       info_mgr.loadCameraInfo(url);
 
       /* pull other configuration */
