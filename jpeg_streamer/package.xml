@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package>
   <name>jpeg_streamer</name>
-  <version>0.2.0</version>
+  <version>0.2.1</version>
   <description>tools for streaming JPEG-formatted CompressedImage topics over HTTP</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag --> 
