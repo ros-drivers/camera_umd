@@ -1,7 +1,7 @@
 <launch>
   <node pkg="nodelet" type="nodelet" name="camera_process" args="manager" output="screen"/>
 
-  <node pkg="nodelet" type="nodelet" name="uvc_camera_stereo" args="load uvc_camera/Stereo /camera_process" output="screen">
+  <node pkg="nodelet" type="nodelet" name="uvc_camera_stereo" args="load uvc_camera/StereoNodelet /camera_process" output="screen">
     <param name="width" type="int" value="320" />
     <param name="height" type="int" value="240" />
     <param name="fps" type="int" value="30" />
