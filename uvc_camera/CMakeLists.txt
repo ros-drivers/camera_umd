@@ -127,8 +127,10 @@ install(FILES
 
 ## Mark other files for installation (e.g. launch and bag files, etc.)
 # install(FILES
-#   # myfile1
-#   # myfile2
+    launch/camera_node.launch
+    launch/camera_nodelet.launch
+    launch/stereo_node.launch
+    launch/stereo_nodelet.launch
 #   DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}
 # )
 
