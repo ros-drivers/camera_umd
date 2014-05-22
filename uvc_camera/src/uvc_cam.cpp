@@ -10,6 +10,8 @@
 #include <fcntl.h>
 #include <errno.h>
 #include <unistd.h>
+#include <ros/console.h>
+
 #include "uvc_cam/uvc_cam.h"
 
 using std::string;
@@ -107,8 +109,13 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
   streamparm.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   streamparm.parm.capture.timeperframe.numerator = 1;
   streamparm.parm.capture.timeperframe.denominator = fps;
-  if ((ret = ioctl(fd, VIDIOC_S_PARM, &streamparm)) < 0)
-    throw std::runtime_error("unable to set framerate");
+  ret = ioctl(fd, VIDIOC_S_PARM, &streamparm);
+  if (ret < 0)
+    if (errno == ENOTTY) {
+        ROS_WARN("VIDIOC_S_PARM not spported on this v4l2 device, framerate not set");
+    } else {
+        throw std::runtime_error("unable to set framerate");
+    }
   v4l2_queryctrl queryctrl;
   memset(&queryctrl, 0, sizeof(queryctrl));
   uint32_t i = V4L2_CID_BASE;
