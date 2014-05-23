@@ -208,6 +208,8 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
   rb.memory = V4L2_MEMORY_MMAP;
   if (ioctl(fd, VIDIOC_REQBUFS, &rb) < 0)
     throw std::runtime_error("unable to allocate buffers");
+  if (NUM_BUFFER != rb.count)
+    ROS_WARN("asked for %d buffers, got %d\r\n", NUM_BUFFER, rb.count);
   for (unsigned i = 0; i < NUM_BUFFER; i++)
   {
     memset(&buf, 0, sizeof(buf));
