@@ -222,7 +222,7 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
       throw std::runtime_error("unable to query buffer");
     if (buf.length <= 0)
       throw std::runtime_error("buffer length is bogus");
-    mem[i] = mmap(0, buf.length, PROT_READ, MAP_SHARED, fd, buf.m.offset);
+    mem[i] = mmap(0, buf.length, PROT_READ|PROT_WRITE, MAP_SHARED, fd, buf.m.offset);
     //printf("buf length = %d at %x\n", buf.length, mem[i]);
     if (mem[i] == MAP_FAILED)
       throw std::runtime_error("couldn't map buffer");
