@@ -23,7 +23,9 @@
 #define UVC_CAM_H
 
 #include <string>
+#include <libv4l2.h>
 #include <linux/videodev2.h>
+
 #include <stdint.h>
 
 namespace uvc_cam
@@ -63,6 +65,8 @@ public:
   bool set_auto_white_balance(bool on);
   void set_motion_thresholds(int lum, int count);
   void set_control(uint32_t id, int val);
+  bool v4l2_query(int id, const std::string& name);
+  bool set_v4l2_control(int id, int value, const std::string& name);
 private:
   std::string device;
   int fd, motion_threshold_luminance, motion_threshold_count;

@@ -14,6 +14,21 @@
 
 using namespace sensor_msgs;
 
+
+struct control_mod {
+  uint32_t id;
+  int32_t val;
+  std::string name;
+
+  control_mod(uint32_t id, int32_t val, const std::string& name) {
+    this->id = id;
+    this->val = val;
+    this->name = name;
+  }
+};
+typedef struct control_mod control_mod_t;
+
+
 /* Rotate an 8-bit, 3-channel image by 180 degrees. */
 static inline void rotate(unsigned char *dst_chr, unsigned char *src_chr, int pixels) {
   struct pixel_t {
@@ -90,6 +105,12 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
 		       width, height, fps);
   cam_right->set_motion_thresholds(100, -1);
 
+  bool auto_focus;
+  if (pnode.getParam("auto_focus", auto_focus)) {
+    cam_left->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
+    cam_right->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
+  }
+
   // TODO:
   // - remove set_control stuff from Cam CTOR
   // - add params for (x priority)
@@ -97,9 +118,9 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
   //   contrast
   //   saturation
   //   hue
-  //   white balance temperature, auto and manual
+  // x white balance temperature, auto and manual
   //   gamma
-  //   power line frequency
+  // x power line frequency
   //   sharpness
   //   backlight compensation
   // x exposure, auto and manual

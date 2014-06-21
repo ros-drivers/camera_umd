@@ -8,6 +8,8 @@ find_package(catkin REQUIRED COMPONENTS camera_info_manager image_transport node
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS thread system)
+#find_package(V4L2 REQUIRED)
+set(V4L2_LIBRARIES v4l2)
 
 
 ## Uncomment this if the package has a setup.py. This macro ensures
@@ -84,13 +86,13 @@ include_directories(
 # )
 
 add_library(nodelet_uvc_camera src/nodelets.cpp src/camera.cpp src/stereo.cpp src/uvc_cam.cpp)
-target_link_libraries(nodelet_uvc_camera ${Boost_LIBRARIES} ${catkin_LIBRARIES})
+target_link_libraries(nodelet_uvc_camera ${Boost_LIBRARIES} ${V4L2_LIBRARIES} ${catkin_LIBRARIES})
 
 add_executable(uvc_camera_node src/camera_node.cpp src/camera.cpp src/uvc_cam.cpp)
-target_link_libraries(uvc_camera_node ${Boost_LIBRARIES} ${catkin_LIBRARIES})
+target_link_libraries(uvc_camera_node ${Boost_LIBRARIES} ${V4L2_LIBRARIES} ${catkin_LIBRARIES})
 
 add_executable(uvc_stereo_node src/stereo_node.cpp src/stereo.cpp src/uvc_cam.cpp)
-target_link_libraries(uvc_stereo_node ${Boost_LIBRARIES} ${catkin_LIBRARIES})
+target_link_libraries(uvc_stereo_node ${Boost_LIBRARIES} ${V4L2_LIBRARIES} ${catkin_LIBRARIES})
 
 #############
 ## Install ##

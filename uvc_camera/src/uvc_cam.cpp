@@ -11,24 +11,12 @@
 #include <errno.h>
 #include <unistd.h>
 #include <ros/console.h>
+#include <err.h>
 
 #include "uvc_cam/uvc_cam.h"
 
 using std::string;
 using namespace uvc_cam;
-
-struct control_mod {
-  uint32_t id;
-  int32_t val;
-  std::string name;
-
-  control_mod(uint32_t id, int32_t val, const std::string& name) {
-    this->id = id;
-    this->val = val;
-    this->name = name;
-  }
-};
-typedef struct control_mod control_mod_t;
 
 Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
 : mode(_mode), device(_device),
@@ -174,39 +162,6 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
       i = V4L2_CID_PRIVATE_BASE_OLD;
     else if (i == V4L2_CID_PRIVATE_LAST)
       i = V4L2_CID_BASE_EXTCTR;
-  }
-
-  // the commented labels correspond to the controls in guvcview and uvcdynctrl
-  std::vector<control_mod_t> control_mods;
-  //control_mods.push_back(control_mod_t(V4L2_CID_EXPOSURE_AUTO_NEW, 2, ""));
-  control_mods.push_back(control_mod_t(10094851, 1, "Exposure, Auto Priority"));
-  control_mods.push_back(control_mod_t(10094849, 1, "Exposure, Auto"));
-  //control_mods.push_back(control_mod_t(168062321, 0, "Disable video processing"));
-  //control_mods.push_back(control_mod_t(0x9a9010, 100, ""));
-  //control_mods.push_back(control_mod_t(V4L2_CID_EXPOSURE_ABSOLUTE_NEW, 300, ""));
-  //control_mods.push_back(control_mod_t(V4L2_CID_BRIGHTNESS, 140, ""));
-  //control_mods.push_back(control_mod_t(V4L2_CID_CONTRAST, 40, ""));
-  //control_mods.push_back(control_mod_t(V4L2_CID_WHITE_BALANCE_TEMP_AUTO_OLD, 0, ""));
-  control_mods.push_back(control_mod_t(9963776, 128, "Brightness"));
-  control_mods.push_back(control_mod_t(9963777, 32, "Contrast"));
-  control_mods.push_back(control_mod_t(9963788, 1, "White Balance Temperature, Auto"));
-  control_mods.push_back(control_mod_t(9963802, 5984, "White Balance Temperature"));
-  //control_mods.push_back(control_mod_t(9963800, 2, "power line frequency to 60 hz"));
-  control_mods.push_back(control_mod_t(9963800, 1, "power line frequency to 50 hz"));
-  control_mods.push_back(control_mod_t(9963795, 200, "Gain"));
-  control_mods.push_back(control_mod_t(9963803, 224, "Sharpness"));
-  control_mods.push_back(control_mod_t(9963804, 1, "Backlight Compensation"));
-  control_mods.push_back(control_mod_t(10094850, 250, "Exposure (Absolute)"));
-  control_mods.push_back(control_mod_t(168062213, 3, "LED1 Mode"));
-  control_mods.push_back(control_mod_t(168062214, 0, "LED1 Frequency"));
-  control_mods.push_back(control_mod_t(9963778, 32, "Saturation"));
-
-  for (std::vector<control_mod_t>::iterator cont_it = control_mods.begin(); cont_it != control_mods.end(); ++cont_it) {
-    try {
-      set_control(cont_it->id, cont_it->val);
-    } catch (std::runtime_error &ex) {
-      printf("ERROR: could not set setting %s (id=%d) to value %d: %s\n", cont_it->name.c_str(), cont_it->id, cont_it->val, ex.what());
-    }
   }
 
 /*
@@ -463,6 +418,54 @@ void Cam::release(unsigned buf_idx)
   if (buf_idx < NUM_BUFFER)
     if (ioctl(fd, VIDIOC_QBUF, &buf) < 0)
       throw std::runtime_error("couldn't requeue buffer");
+}
+
+bool
+Cam::v4l2_query(int id, const std::string& name)
+{
+  if (fd < 0) {
+    printf("Capture file not open: Can't %s\n", name.c_str());
+    return false;
+  }
+
+  struct v4l2_queryctrl queryctrl;
+  memset(&queryctrl, 0, sizeof(queryctrl));
+  queryctrl.id = id;
+  if (v4l2_ioctl(fd, VIDIOC_QUERYCTRL, &queryctrl) < 0) {
+    if (errno == EINVAL) {
+      //error(FLF("Setting %s is not supported\n"), name.c_str());
+    } else {
+      warn("Failed query %s", name.c_str());
+    }
+    return false;
+  }
+
+  return true;
+}
+
+bool
+Cam::set_v4l2_control(int id, int value, const std::string& name)
+{
+  if (fd < 0) {
+    printf("Capture file not open: Can't %s\n", name.c_str());
+    return false;
+  }
+
+  if (!v4l2_query(id, name)) {
+      printf("Setting %s is not supported\n", name.c_str());
+      return false;
+  }
+
+  struct v4l2_control control;
+  memset(&control, 0, sizeof(control));
+  control.id = id;
+  control.value = value;
+	if (v4l2_ioctl(fd, VIDIOC_S_CTRL, &control) < 0) {
+    warn("Failed to change %s to %d", name.c_str(), control.value);
+    return false;
+  }
+
+  return true;
 }
 
 void Cam::set_control(uint32_t id, int val)
