@@ -17,6 +17,19 @@
 using std::string;
 using namespace uvc_cam;
 
+struct control_mod {
+  uint32_t id;
+  int32_t val;
+  std::string name;
+
+  control_mod(uint32_t id, int32_t val, const std::string& name) {
+    this->id = id;
+    this->val = val;
+    this->name = name;
+  }
+};
+typedef struct control_mod control_mod_t;
+
 Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
 : mode(_mode), device(_device),
   motion_threshold_luminance(100), motion_threshold_count(-1),
@@ -163,36 +176,37 @@ Cam::Cam(const char *_device, mode_t _mode, int _width, int _height, int _fps)
       i = V4L2_CID_BASE_EXTCTR;
   }
 
-  try
-  {
-    // the commented labels correspond to the controls in guvcview and uvcdynctrl
+  // the commented labels correspond to the controls in guvcview and uvcdynctrl
+  std::vector<control_mod_t> control_mods;
+  //control_mods.push_back(control_mod_t(V4L2_CID_EXPOSURE_AUTO_NEW, 2, ""));
+  control_mods.push_back(control_mod_t(10094851, 1, "Exposure, Auto Priority"));
+  control_mods.push_back(control_mod_t(10094849, 1, "Exposure, Auto"));
+  //control_mods.push_back(control_mod_t(168062321, 0, "Disable video processing"));
+  //control_mods.push_back(control_mod_t(0x9a9010, 100, ""));
+  //control_mods.push_back(control_mod_t(V4L2_CID_EXPOSURE_ABSOLUTE_NEW, 300, ""));
+  //control_mods.push_back(control_mod_t(V4L2_CID_BRIGHTNESS, 140, ""));
+  //control_mods.push_back(control_mod_t(V4L2_CID_CONTRAST, 40, ""));
+  //control_mods.push_back(control_mod_t(V4L2_CID_WHITE_BALANCE_TEMP_AUTO_OLD, 0, ""));
+  control_mods.push_back(control_mod_t(9963776, 128, "Brightness"));
+  control_mods.push_back(control_mod_t(9963777, 32, "Contrast"));
+  control_mods.push_back(control_mod_t(9963788, 1, "White Balance Temperature, Auto"));
+  control_mods.push_back(control_mod_t(9963802, 5984, "White Balance Temperature"));
+  //control_mods.push_back(control_mod_t(9963800, 2, "power line frequency to 60 hz"));
+  control_mods.push_back(control_mod_t(9963800, 1, "power line frequency to 50 hz"));
+  control_mods.push_back(control_mod_t(9963795, 200, "Gain"));
+  control_mods.push_back(control_mod_t(9963803, 224, "Sharpness"));
+  control_mods.push_back(control_mod_t(9963804, 1, "Backlight Compensation"));
+  control_mods.push_back(control_mod_t(10094850, 250, "Exposure (Absolute)"));
+  control_mods.push_back(control_mod_t(168062213, 3, "LED1 Mode"));
+  control_mods.push_back(control_mod_t(168062214, 0, "LED1 Frequency"));
+  control_mods.push_back(control_mod_t(9963778, 32, "Saturation"));
 
-    //set_control(V4L2_CID_EXPOSURE_AUTO_NEW, 2);
-    set_control(10094851, 1); // Exposure, Auto Priority
-    set_control(10094849, 1); // Exposure, Auto
-    //set_control(168062321, 0); //Disable video processing
-    //set_control(0x9a9010, 100);
-    //set_control(V4L2_CID_EXPOSURE_ABSOLUTE_NEW, 300);
-    //set_control(V4L2_CID_BRIGHTNESS, 140);
-    //set_control(V4L2_CID_CONTRAST, 40);
-    //set_control(V4L2_CID_WHITE_BALANCE_TEMP_AUTO_OLD, 0);
-    set_control(9963776, 128); //Brightness
-    set_control(9963777, 32); //Contrast
-    set_control(9963788, 1); // White Balance Temperature, Auto
-    set_control(9963802, 5984); // White Balance Temperature
-    set_control(9963800, 2);  // power line frequency to 60 hz
-    set_control(9963795, 200); // Gain
-    set_control(9963803, 224); // Sharpness
-    set_control(9963804, 1); //Backlight Compensation
-    set_control(10094850, 250); // Exposure (Absolute)
-    set_control(168062212, 16); //Focus (absolute)
-    set_control(168062213, 3); //LED1 Mode
-    set_control(168062214, 0); //LED1 Frequency
-    set_control(9963778, 32); // Saturation
-  }
-  catch (std::runtime_error &ex)
-  {
-    printf("ERROR: could not set some settings.  \n %s \n", ex.what());
+  for (std::vector<control_mod_t>::iterator cont_it = control_mods.begin(); cont_it != control_mods.end(); ++cont_it) {
+    try {
+      set_control(cont_it->id, cont_it->val);
+    } catch (std::runtime_error &ex) {
+      printf("ERROR: could not set setting %s (id=%d) to value %d: %s\n", cont_it->name.c_str(), cont_it->id, cont_it->val, ex.what());
+    }
   }
 
 /*
