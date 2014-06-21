@@ -105,14 +105,20 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
 		       width, height, fps);
   cam_right->set_motion_thresholds(100, -1);
 
+
   bool auto_focus;
   if (pnode.getParam("auto_focus", auto_focus)) {
     cam_left->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
     cam_right->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
   }
 
+  int focus_absolute;
+  if (pnode.getParam("focus_absolute", focus_absolute)) {
+    cam_left->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
+    cam_right->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
+  }
+
   // TODO:
-  // - remove set_control stuff from Cam CTOR
   // - add params for (x priority)
   //   brightness
   //   contrast
@@ -129,6 +135,7 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
   // x focus, auto and manual
   // - add generic parameter list:
   //   [(id0, val0, name0), (id1, val1, name1), ...]
+
 
   /* and turn on the streamer */
   ok = true;
