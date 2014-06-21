@@ -90,6 +90,25 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
 		       width, height, fps);
   cam_right->set_motion_thresholds(100, -1);
 
+  // TODO:
+  // - remove set_control stuff from Cam CTOR
+  // - add params for (x priority)
+  //   brightness
+  //   contrast
+  //   saturation
+  //   hue
+  //   white balance temperature, auto and manual
+  //   gamma
+  //   power line frequency
+  //   sharpness
+  //   backlight compensation
+  // x exposure, auto and manual
+  //   exposure auto priority
+  //   zoom
+  // x focus, auto and manual
+  // - add generic parameter list:
+  //   [(id0, val0, name0), (id1, val1, name1), ...]
+
   /* and turn on the streamer */
   ok = true;
   image_thread = boost::thread(boost::bind(&StereoCamera::feedImages, this));
