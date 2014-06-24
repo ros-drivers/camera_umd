@@ -1,7 +1,7 @@
 <?xml version="1.0"?>
 <package>
   <name>uvc_camera</name>
-  <version>0.2.1</version>
+  <version>0.2.2</version>
   <description>
      A collection of node(let)s that stream images from USB cameras (UVC)
      and provide CameraInfo messages to consumers. Includes a
