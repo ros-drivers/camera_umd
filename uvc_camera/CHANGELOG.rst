@@ -2,6 +2,14 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.2.2 (2014-06-24)
+------------------
+* Print warnings instead of crashing when camera features are unavailable.
+* Support V4L drivers that need user-writable mmap regions (e.g., bttv).
+* Fixed nodelet names in the launch files.
+* Added camera_name parameter, sent to camera_info_manager.
+* Contributors: James Sarrett, Ken Tossell
+
 0.2.1 (2014-01-12)
 ------------------
 * Added install rule for nodelet_uvc_camera.xml
