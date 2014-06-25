@@ -118,21 +118,53 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
     cam_right->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
   }
 
+  bool auto_exposure;
+  if (pnode.getParam("auto_exposure", auto_exposure)) {
+    int val;
+    if (auto_exposure) {
+      val = V4L2_EXPOSURE_AUTO;
+    } else {
+      val = V4L2_EXPOSURE_MANUAL;
+    }
+    cam_left->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
+    cam_right->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
+  }
+
+  int exposure_absolute;
+  if (pnode.getParam("exposure_absolute", exposure_absolute)) {
+    cam_left->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+    cam_right->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+  }
+
+  int power_line_frequency;
+  if (pnode.getParam("power_line_frequency", power_line_frequency)) {
+    int val;
+    if (power_line_frequency == 0) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_DISABLED;
+    } else if (power_line_frequency == 50) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_50HZ;
+    } else if (power_line_frequency == 60) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_60HZ;
+    } else {
+      printf("power_line_frequency=%d not supported. Using auto.\n", power_line_frequency);
+      val = V4L2_CID_POWER_LINE_FREQUENCY_AUTO;
+    }
+    cam_left->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
+    cam_right->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
+  }
+
   // TODO:
-  // - add params for (x priority)
+  // - add params for
   //   brightness
   //   contrast
   //   saturation
   //   hue
-  // x white balance temperature, auto and manual
+  //   white balance temperature, auto and manual
   //   gamma
-  // x power line frequency
   //   sharpness
   //   backlight compensation
-  // x exposure, auto and manual
   //   exposure auto priority
   //   zoom
-  // x focus, auto and manual
   // - add generic parameter list:
   //   [(id0, val0, name0), (id1, val1, name1), ...]
 
