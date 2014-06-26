@@ -2,6 +2,11 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.2.3 (2014-06-26)
+------------------
+* Disabled hardcoded default parameters.
+* Contributors: Ken Tossell
+
 0.2.2 (2014-06-24)
 ------------------
 * Print warnings instead of crashing when camera features are unavailable.
