@@ -2,6 +2,12 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+0.2.4 (2014-06-29)
+------------------
+* Added new parameters: auto_focus (bool), focus_absolute (int), auto_exposure (bool),
+  exposure_absolute (int), power_line_frequency (int: 0/50/60)
+* Contributors: Andreas Bihlmaier
+
 0.2.3 (2014-06-26)
 ------------------
 * Disabled hardcoded default parameters.
