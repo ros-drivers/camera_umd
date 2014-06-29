@@ -58,6 +58,65 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       cam = new uvc_cam::Cam(device.c_str(), uvc_cam::Cam::MODE_RGB, width, height, fps);
       cam->set_motion_thresholds(100, -1);
 
+
+      bool auto_focus;
+      if (pnode.getParam("auto_focus", auto_focus)) {
+        cam->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
+      }
+
+      int focus_absolute;
+      if (pnode.getParam("focus_absolute", focus_absolute)) {
+        cam->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
+      }
+
+      bool auto_exposure;
+      if (pnode.getParam("auto_exposure", auto_exposure)) {
+        int val;
+        if (auto_exposure) {
+          val = V4L2_EXPOSURE_AUTO;
+        } else {
+          val = V4L2_EXPOSURE_MANUAL;
+        }
+        cam->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
+      }
+
+      int exposure_absolute;
+      if (pnode.getParam("exposure_absolute", exposure_absolute)) {
+        cam->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+      }
+
+      int power_line_frequency;
+      if (pnode.getParam("power_line_frequency", power_line_frequency)) {
+        int val;
+        if (power_line_frequency == 0) {
+          val = V4L2_CID_POWER_LINE_FREQUENCY_DISABLED;
+        } else if (power_line_frequency == 50) {
+          val = V4L2_CID_POWER_LINE_FREQUENCY_50HZ;
+        } else if (power_line_frequency == 60) {
+          val = V4L2_CID_POWER_LINE_FREQUENCY_60HZ;
+        } else {
+          printf("power_line_frequency=%d not supported. Using auto.\n", power_line_frequency);
+          val = V4L2_CID_POWER_LINE_FREQUENCY_AUTO;
+        }
+        cam->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
+      }
+
+      // TODO:
+      // - add params for
+      //   brightness
+      //   contrast
+      //   saturation
+      //   hue
+      //   white balance temperature, auto and manual
+      //   gamma
+      //   sharpness
+      //   backlight compensation
+      //   exposure auto priority
+      //   zoom
+      // - add generic parameter list:
+      //   [(id0, val0, name0), (id1, val1, name1), ...]
+
+
       /* and turn on the streamer */
       ok = true;
       image_thread = boost::thread(boost::bind(&Camera::feedImages, this));

@@ -14,6 +14,21 @@
 
 using namespace sensor_msgs;
 
+
+struct control_mod {
+  uint32_t id;
+  int32_t val;
+  std::string name;
+
+  control_mod(uint32_t id, int32_t val, const std::string& name) {
+    this->id = id;
+    this->val = val;
+    this->name = name;
+  }
+};
+typedef struct control_mod control_mod_t;
+
+
 /* Rotate an 8-bit, 3-channel image by 180 degrees. */
 static inline void rotate(unsigned char *dst_chr, unsigned char *src_chr, int pixels) {
   struct pixel_t {
@@ -89,6 +104,70 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
       new uvc_cam::Cam(right_device.c_str(), uvc_cam::Cam::MODE_RGB,
 		       width, height, fps);
   cam_right->set_motion_thresholds(100, -1);
+
+
+  bool auto_focus;
+  if (pnode.getParam("auto_focus", auto_focus)) {
+    cam_left->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
+    cam_right->set_v4l2_control(V4L2_CID_FOCUS_AUTO, auto_focus, "auto_focus");
+  }
+
+  int focus_absolute;
+  if (pnode.getParam("focus_absolute", focus_absolute)) {
+    cam_left->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
+    cam_right->set_v4l2_control(V4L2_CID_FOCUS_ABSOLUTE, focus_absolute, "focus_absolute");
+  }
+
+  bool auto_exposure;
+  if (pnode.getParam("auto_exposure", auto_exposure)) {
+    int val;
+    if (auto_exposure) {
+      val = V4L2_EXPOSURE_AUTO;
+    } else {
+      val = V4L2_EXPOSURE_MANUAL;
+    }
+    cam_left->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
+    cam_right->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
+  }
+
+  int exposure_absolute;
+  if (pnode.getParam("exposure_absolute", exposure_absolute)) {
+    cam_left->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+    cam_right->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+  }
+
+  int power_line_frequency;
+  if (pnode.getParam("power_line_frequency", power_line_frequency)) {
+    int val;
+    if (power_line_frequency == 0) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_DISABLED;
+    } else if (power_line_frequency == 50) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_50HZ;
+    } else if (power_line_frequency == 60) {
+      val = V4L2_CID_POWER_LINE_FREQUENCY_60HZ;
+    } else {
+      printf("power_line_frequency=%d not supported. Using auto.\n", power_line_frequency);
+      val = V4L2_CID_POWER_LINE_FREQUENCY_AUTO;
+    }
+    cam_left->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
+    cam_right->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
+  }
+
+  // TODO:
+  // - add params for
+  //   brightness
+  //   contrast
+  //   saturation
+  //   hue
+  //   white balance temperature, auto and manual
+  //   gamma
+  //   sharpness
+  //   backlight compensation
+  //   exposure auto priority
+  //   zoom
+  // - add generic parameter list:
+  //   [(id0, val0, name0), (id1, val1, name1), ...]
+
 
   /* and turn on the streamer */
   ok = true;

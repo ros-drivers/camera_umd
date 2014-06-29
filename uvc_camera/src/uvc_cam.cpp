@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <unistd.h>
 #include <ros/console.h>
+#include <err.h>
 
 #include "uvc_cam/uvc_cam.h"
 
@@ -417,6 +418,54 @@ void Cam::release(unsigned buf_idx)
   if (buf_idx < NUM_BUFFER)
     if (ioctl(fd, VIDIOC_QBUF, &buf) < 0)
       throw std::runtime_error("couldn't requeue buffer");
+}
+
+bool
+Cam::v4l2_query(int id, const std::string& name)
+{
+  if (fd < 0) {
+    printf("Capture file not open: Can't %s\n", name.c_str());
+    return false;
+  }
+
+  struct v4l2_queryctrl queryctrl;
+  memset(&queryctrl, 0, sizeof(queryctrl));
+  queryctrl.id = id;
+  if (v4l2_ioctl(fd, VIDIOC_QUERYCTRL, &queryctrl) < 0) {
+    if (errno == EINVAL) {
+      //error(FLF("Setting %s is not supported\n"), name.c_str());
+    } else {
+      warn("Failed query %s", name.c_str());
+    }
+    return false;
+  }
+
+  return true;
+}
+
+bool
+Cam::set_v4l2_control(int id, int value, const std::string& name)
+{
+  if (fd < 0) {
+    printf("Capture file not open: Can't %s\n", name.c_str());
+    return false;
+  }
+
+  if (!v4l2_query(id, name)) {
+      printf("Setting %s is not supported\n", name.c_str());
+      return false;
+  }
+
+  struct v4l2_control control;
+  memset(&control, 0, sizeof(control));
+  control.id = id;
+  control.value = value;
+	if (v4l2_ioctl(fd, VIDIOC_S_CTRL, &control) < 0) {
+    warn("Failed to change %s to %d", name.c_str(), control.value);
+    return false;
+  }
+
+  return true;
 }
 
 void Cam::set_control(uint32_t id, int val)
