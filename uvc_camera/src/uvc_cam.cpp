@@ -435,7 +435,7 @@ Cam::v4l2_query(int id, const std::string& name)
     if (errno == EINVAL) {
       //error(FLF("Setting %s is not supported\n"), name.c_str());
     } else {
-      warn("Failed query %s", name.c_str());
+      ROS_WARN("Failed query %s", name.c_str());
     }
     return false;
   }
@@ -460,8 +460,8 @@ Cam::set_v4l2_control(int id, int value, const std::string& name)
   memset(&control, 0, sizeof(control));
   control.id = id;
   control.value = value;
-	if (v4l2_ioctl(fd, VIDIOC_S_CTRL, &control) < 0) {
-    warn("Failed to change %s to %d", name.c_str(), control.value);
+  if (v4l2_ioctl(fd, VIDIOC_S_CTRL, &control) < 0) {
+    ROS_WARN("Failed to change %s to %d", name.c_str(), control.value);
     return false;
   }
 
