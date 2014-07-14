@@ -136,6 +136,12 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
     cam_right->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
   }
 
+  int brightness;
+  if (pnode.getParam("brightness", brightness)) {
+    cam_left->set_v4l2_control(V4L2_CID_BRIGHTNESS, brightness, "brightness");
+    cam_right->set_v4l2_control(V4L2_CID_BRIGHTNESS, brightness, "brightness");
+  }
+
   int power_line_frequency;
   if (pnode.getParam("power_line_frequency", power_line_frequency)) {
     int val;
@@ -155,7 +161,6 @@ StereoCamera::StereoCamera(ros::NodeHandle comm_nh, ros::NodeHandle param_nh) :
 
   // TODO:
   // - add params for
-  //   brightness
   //   contrast
   //   saturation
   //   hue
