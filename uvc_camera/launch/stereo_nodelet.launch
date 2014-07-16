@@ -9,7 +9,7 @@
 
     <param name="auto_focus" type="bool" value="False" />
     <param name="focus_absolute" type="int" value="0" />
-    <!-- other supported params: auto_exposure, exposure_absolute, power_line_frequency -->
+    <!-- other supported params: auto_exposure, exposure_absolute, brightness, power_line_frequency -->
 
     <param name="left/device" type="string" value="/dev/video0" />
     <param name="right/device" type="string" value="/dev/video1" />
