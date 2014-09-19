@@ -5,6 +5,7 @@
 
 #include "uvc_cam/uvc_cam.h"
 #include "sensor_msgs/Image.h"
+#include "sensor_msgs/CompressedImage.h"
 #include "sensor_msgs/image_encodings.h"
 #include "sensor_msgs/CameraInfo.h"
 #include "camera_info_manager/camera_info_manager.h"
@@ -29,6 +30,7 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       device = "/dev/video0";
       frame = "camera";
       rotate = false;
+      format = "rgb";
 
       /* set up information manager */
       std::string url, camera_name;
@@ -49,13 +51,21 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
 
       pnode.getParam("frame_id", frame);
 
+      pnode.getParam("format", format);
+
       /* advertise image streams and info streams */
-      pub = it.advertise("image_raw", 1);
+      if (format != "jpeg")
+        pub = it.advertise("image_raw", 1);
+      else
+        pubjpeg = node.advertise<CompressedImage>("image_raw/compressed", 1);
 
       info_pub = node.advertise<CameraInfo>("camera_info", 1);
 
       /* initialize the cameras */
-      cam = new uvc_cam::Cam(device.c_str(), uvc_cam::Cam::MODE_RGB, width, height, fps);
+      uvc_cam::Cam::mode_t mode = uvc_cam::Cam::MODE_RGB;
+      if (format == "jpeg")
+        mode = uvc_cam::Cam::MODE_MJPG;
+      cam = new uvc_cam::Cam(device.c_str(), mode, width, height, fps);
       cam->set_motion_thresholds(100, -1);
 
 
@@ -148,6 +158,14 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       info_pub.publish(info);
     }
 
+    void Camera::sendInfoJpeg(ros::Time time) {
+      CameraInfoPtr info(new CameraInfo(info_mgr.getCameraInfo()));
+      info->header.stamp = time;
+      info->header.frame_id = frame;
+
+      info_pub.publish(info);
+    }
+
     void Camera::feedImages() {
       unsigned int pair_id = 0;
       while (ok) {
@@ -163,7 +181,7 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
          * this is based on Stereo...
          */
         if (skip_frames == 0 || frames_to_skip == 0) {
-          if (img_frame) {
+          if (img_frame && format != "jpeg") {
              ImagePtr image(new Image);
 
              image->height = height;
@@ -183,6 +201,23 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
              pub.publish(image);
 
              sendInfo(image, capture_time);
+
+             ++pair_id;
+          } else if (img_frame && format == "jpeg") {
+             CompressedImagePtr image(new CompressedImage);
+
+             image->header.stamp = capture_time;
+             image->header.seq = pair_id;
+
+             image->header.frame_id = frame;
+
+             image->data.resize(bytes_used);
+
+             memcpy(&image->data[0], img_frame, bytes_used);
+
+             pubjpeg.publish(image);
+
+             sendInfoJpeg(capture_time);
 
              ++pair_id;
           }
