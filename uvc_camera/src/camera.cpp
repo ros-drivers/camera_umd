@@ -63,11 +63,10 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
 
       /* initialize the cameras */
       uvc_cam::Cam::mode_t mode = uvc_cam::Cam::MODE_RGB;
-      if (format == "jpeg")
-        mode = uvc_cam::Cam::MODE_MJPG;
+      if (format == "jpeg") 
+        mode = uvc_cam::Cam::MODE_MJPG;      
       cam = new uvc_cam::Cam(device.c_str(), mode, width, height, fps);
       cam->set_motion_thresholds(100, -1);
-
 
       bool auto_focus;
       if (pnode.getParam("auto_focus", auto_focus)) {
@@ -94,6 +93,11 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
       if (pnode.getParam("exposure_absolute", exposure_absolute)) {
         cam->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
       }
+      
+      int exposure_auto_priority;
+      if (pnode.getParam("exposure_auto_priority", exposure_auto_priority)) {
+        cam->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO_PRIORITY, exposure_auto_priority, "exposure_auto_priority");
+      } 
 
       int brightness;
       if (pnode.getParam("brightness", brightness)) {
@@ -116,20 +120,55 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
         cam->set_v4l2_control(V4L2_CID_POWER_LINE_FREQUENCY, val, "power_line_frequency");
       }
 
-      // TODO:
-      // - add params for
-      //   contrast
-      //   saturation
-      //   hue
-      //   white balance temperature, auto and manual
-      //   gamma
-      //   sharpness
-      //   backlight compensation
-      //   exposure auto priority
-      //   zoom
-      // - add generic parameter list:
-      //   [(id0, val0, name0), (id1, val1, name1), ...]
+      int contrast;
+      if (pnode.getParam("contrast", contrast)) {
+        cam->set_v4l2_control(V4L2_CID_CONTRAST, contrast, "contrast");  
+      }
 
+      int saturation;
+      if (pnode.getParam("saturation", saturation)) {
+        cam->set_v4l2_control(V4L2_CID_SATURATION, saturation, "saturation"); 
+      }
+
+      int hue;
+      if (pnode.getParam("hue", hue)) {
+        cam->set_v4l2_control(V4L2_CID_HUE, hue, "hue"); 
+      }
+
+      bool auto_white_balance;
+      if (pnode.getParam("auto_white_balance", auto_white_balance)) {
+        cam->set_v4l2_control(V4L2_CID_AUTO_WHITE_BALANCE, auto_white_balance, "auto_white_balance");
+      }
+
+      int white_balance_tmp;
+      if (pnode.getParam("white_balance_temperature", white_balance_tmp)) {   
+        cam->set_v4l2_control(V4L2_CID_WHITE_BALANCE_TEMPERATURE, white_balance_tmp, "white_balance_temperature"); 
+      }
+      
+      int gamma;
+      if (pnode.getParam("gamma", gamma)) {
+        cam->set_v4l2_control(V4L2_CID_GAMMA, gamma, "gamma");
+      }
+
+      int sharpness;
+      if (pnode.getParam("sharpness", sharpness)) {
+        cam->set_v4l2_control(V4L2_CID_SHARPNESS, sharpness, "sharpness");
+      }
+
+      int backlight_comp;
+      if (pnode.getParam("backlight_compensation", backlight_comp)) {
+        cam->set_v4l2_control(V4L2_CID_BACKLIGHT_COMPENSATION, backlight_comp, "backlight_compensation");
+      }
+
+      int gain;
+      if (pnode.getParam("gain", gain)) {
+        cam->set_v4l2_control(V4L2_CID_GAIN, gain, "gain");
+      }
+
+      // TODO: 
+      // - zoom absolute, zoom relative and zoom continuous controls
+      // - add generic parameter list:
+      //   [(id0, val0, name0), (id1, val1, name1), ...
 
       /* and turn on the streamer */
       ok = true;
