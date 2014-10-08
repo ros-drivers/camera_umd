@@ -13,7 +13,7 @@
       <param name="exposure_absolute" value="75" />
       <param name="exposure_auto_priority" value="0" />
       <param name="auto_white_balance" value="0" />
-      <param name="white_balance_temperature" value="2850" />
+      <param name="white_balance_temperature" value="2800" />
       <param name="brightness" value="-45" />
       <param name="auto_focus" value="0" />
       <param name="contrast" value="16" />
@@ -21,8 +21,11 @@
       <param name="hue" value="0" />
       <param name="gamma" value="100" />
       <param name="sharpness" value="3" />
-      <param name="backlight_compensation" value="0" />
-      <param name="gain" value="0" />
+      <param name="backlight_compensation" value="2" />
+      <param name="gain" value="30" />
+      <param name="auto_gain" value="0" />
+      <param name="horizontal_flip" value="0" />
+      <param name="vertical_flip" value="0" />
     </node>
 </launch>
 

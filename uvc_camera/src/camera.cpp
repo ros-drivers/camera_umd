@@ -89,16 +89,21 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
         cam->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO, val, "auto_exposure");
       }
 
-      int exposure_absolute;
-      if (pnode.getParam("exposure_absolute", exposure_absolute)) {
-        cam->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
-      }
-      
       int exposure_auto_priority;
       if (pnode.getParam("exposure_auto_priority", exposure_auto_priority)) {
         cam->set_v4l2_control(V4L2_CID_EXPOSURE_AUTO_PRIORITY, exposure_auto_priority, "exposure_auto_priority");
       } 
 
+      int exposure_absolute;
+      if (pnode.getParam("exposure_absolute", exposure_absolute)) {
+        cam->set_v4l2_control(V4L2_CID_EXPOSURE_ABSOLUTE, exposure_absolute, "exposure_absolute");
+      }
+
+      int exposure;
+      if (pnode.getParam("exposure", exposure)) {
+        cam->set_v4l2_control(V4L2_CID_EXPOSURE, exposure, "exposure");
+      }
+      
       int brightness;
       if (pnode.getParam("brightness", brightness)) {
         cam->set_v4l2_control(V4L2_CID_BRIGHTNESS, brightness, "brightness");
@@ -160,9 +165,24 @@ Camera::Camera(ros::NodeHandle _comm_nh, ros::NodeHandle _param_nh) :
         cam->set_v4l2_control(V4L2_CID_BACKLIGHT_COMPENSATION, backlight_comp, "backlight_compensation");
       }
 
+      bool auto_gain;
+      if (pnode.getParam("auto_gain", auto_gain)) {
+        cam->set_v4l2_control(V4L2_CID_AUTOGAIN, auto_gain, "auto_gain");
+      }
+
       int gain;
       if (pnode.getParam("gain", gain)) {
         cam->set_v4l2_control(V4L2_CID_GAIN, gain, "gain");
+      }
+
+      bool h_flip;
+      if (pnode.getParam("horizontal_flip", h_flip)) {
+        cam->set_v4l2_control(V4L2_CID_HFLIP, h_flip, "horizontal_flip");
+      }
+
+      bool v_flip;
+      if (pnode.getParam("vertical_flip", v_flip)) {
+        cam->set_v4l2_control(V4L2_CID_VFLIP, v_flip, "vertical_flip");
       }
 
       // TODO: 
