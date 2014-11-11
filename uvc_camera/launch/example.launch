@@ -16,6 +16,7 @@
       <param name="white_balance_temperature" value="2800" />
       <param name="brightness" value="-45" />
       <param name="auto_focus" value="0" />
+      <param name="focus_absolute" value="0" />
       <param name="contrast" value="16" />
       <param name="saturation" value="128" />
       <param name="hue" value="0" />
