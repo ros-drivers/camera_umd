@@ -2,8 +2,8 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.2.5 (2017-06-15)
+------------------
 * add ROS Orphaned Package Maintainers to maintainer tag (`#18 <https://github.com/ros-drivers/camera_umd/pull/18>`_)
 * important property: focus_absolute ; add because here example == documentation
 * Added exposure, gain, horizontal flip and vertical flip controls (`#15 <https://github.com/ros-drivers/camera_umd/pull/15>`_)
