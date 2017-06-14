@@ -2,6 +2,19 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* add ROS Orphaned Package Maintainers to maintainer tag (`#18 <https://github.com/ros-drivers/camera_umd/pull/18>`_)
+* important property: focus_absolute ; add because here example == documentation
+* Added exposure, gain, horizontal flip and vertical flip controls (`#15 <https://github.com/ros-drivers/camera_umd/pull/15>`_)
+* Added support for some camera controls in ROS .launch files.  (`#14 <https://github.com/ros-drivers/camera_umd/pull/14>`_)
+  * Added exposure, gain, horizontal flip and vertical flip controls
+  * Added support for camera controls in ROS .launch files. Also added example.launch
+* Support MJPEG format direct streaming (`#13 <https://github.com/ros-drivers/camera_umd/pull/13>`_)
+* Add comment in launchfiles. (`#12 <https://github.com/ros-drivers/camera_umd/pull/12>`_)
+* Add brightness control parameter. (`#12 <https://github.com/ros-drivers/camera_umd/pull/12>`_)
+* Contributors: Adrian Yuen, Glass Bot, Kei Okada, Lingzhu Xiang, Toni Oliver
+
 0.2.4 (2014-06-29)
 ------------------
 * Added new parameters: auto_focus (bool), focus_absolute (int), auto_exposure (bool),

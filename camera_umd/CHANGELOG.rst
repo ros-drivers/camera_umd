@@ -2,6 +2,11 @@
 Changelog for package camera_umd
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* add ROS Orphaned Package Maintainers to maintainer tag
+* Contributors: Kei Okada
+
 0.2.4 (2014-06-29)
 ------------------
 

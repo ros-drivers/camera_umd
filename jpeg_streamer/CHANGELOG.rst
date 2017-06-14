@@ -2,6 +2,11 @@
 Changelog for package jpeg_streamer
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* add ROS Orphaned Package Maintainers to maintainer tag
+* Contributors: Kei Okada
+
 0.2.4 (2014-06-29)
 ------------------
 
