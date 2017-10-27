@@ -49,6 +49,6 @@ class StereoNodelet : public nodelet::Nodelet {
 
 };
 
-PLUGINLIB_DECLARE_CLASS(uvc_camera, CameraNodelet, uvc_camera::CameraNodelet, nodelet::Nodelet);
-PLUGINLIB_DECLARE_CLASS(uvc_camera, StereoNodelet, uvc_camera::StereoNodelet, nodelet::Nodelet);
+PLUGINLIB_EXPORT_CLASS(uvc_camera::CameraNodelet, nodelet::Nodelet)
+PLUGINLIB_EXPORT_CLASS(uvc_camera::StereoNodelet, nodelet::Nodelet)
 
