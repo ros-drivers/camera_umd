@@ -2,6 +2,13 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#22 <https://github.com/ros-drivers/camera_umd/issues/22>`_ from ros-drivers/fix_9
+  install launch files
+* install launch files
+* Contributors: Kei Okada
+
 0.2.6 (2018-08-30)
 ------------------
 * Merge pull request `#21 <https://github.com/ros-drivers/camera_umd/issues/21>`_ from ros-drivers/add_travis
