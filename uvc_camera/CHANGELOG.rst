@@ -2,8 +2,8 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Forthcoming
------------
+0.2.6 (2018-08-30)
+------------------
 * Merge pull request `#21 <https://github.com/ros-drivers/camera_umd/issues/21>`_ from ros-drivers/add_travis
   add .travis.yml including melodic
 * Merge remote-tracking branch 'mikaelarguedas/patch-1' into add_travis
