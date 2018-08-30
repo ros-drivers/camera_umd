@@ -2,6 +2,14 @@
 Changelog for package uvc_camera
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+* Merge pull request `#21 <https://github.com/ros-drivers/camera_umd/issues/21>`_ from ros-drivers/add_travis
+  add .travis.yml including melodic
+* Merge remote-tracking branch 'mikaelarguedas/patch-1' into add_travis
+* update to use non deprecated pluginlib macro
+* Contributors: Kei Okada, Mikael Arguedas
+
 0.2.5 (2017-06-15)
 ------------------
 * add ROS Orphaned Package Maintainers to maintainer tag (`#18 <https://github.com/ros-drivers/camera_umd/pull/18>`_)

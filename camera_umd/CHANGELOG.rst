@@ -2,6 +2,9 @@
 Changelog for package camera_umd
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+Forthcoming
+-----------
+
 0.2.5 (2017-06-15)
 ------------------
 * add ROS Orphaned Package Maintainers to maintainer tag
