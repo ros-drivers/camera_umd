@@ -1,4 +1,4 @@
-Old ROS Webcam Drivers
+Old ROS Webcam Drivers [![Build Status](https://travis-ci.org/ros-drivers/camera_umd.svg?branch=kinetic-devel)](https://travis-ci.org/ros-drivers/camera_umd)
 ======================
 
 This repository contains `uvc_camera`, a Video4Linux-based webcam driver for ROS. It is **deprecated**,
